@@ -1,3 +1,4 @@
+
 import type { Application } from '@/lib/lambda-calculus/types';
 import { ASTNodeComponent } from './ASTNodeComponent';
 import { cn } from '@/lib/utils';
@@ -13,7 +14,7 @@ export function ApplicationNodeDisplay({ node, depth, isHighlighted, redexIdToHi
   return (
     <div
       className={cn(
-        "p-3 m-1 border rounded-lg shadow-md flex flex-col items-center",
+        "p-2 m-1 border rounded-lg shadow-md flex flex-col items-center", // Reduced padding from p-3
         "bg-[hsl(var(--ast-application-bg))] text-[hsl(var(--ast-application-fg))]",
         "border-[hsl(var(--ast-application-fg)/0.5)]",
         isHighlighted && "ring-2 ring-[hsl(var(--ast-highlight-bg))] animate-highlightPulse"
