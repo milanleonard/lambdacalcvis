@@ -8,27 +8,26 @@
  */
 
 import {ai} from '@/ai/genkit';
-// Zod import and schema definitions have been removed for simplification.
+import {z} from 'zod';
 
-export interface SayHelloInput {
-  name: string;
-}
+const SayHelloInputSchema = z.object({
+  name: z.string().optional().describe('The name to greet. Defaults to "World" if not provided.'),
+});
+export type SayHelloInput = z.infer<typeof SayHelloInputSchema>;
 
-export type SayHelloOutput = string;
+// Explicitly defining output schema as z.string()
+const SayHelloOutputSchema = z.string().describe('The greeting message from Genkit.');
+export type SayHelloOutput = z.infer<typeof SayHelloOutputSchema>;
 
 const helloFlowInternal = ai.defineFlow(
   {
     name: 'helloFlow',
-    // inputSchema and outputSchema are removed for this diagnostic step.
-    // Genkit flows can operate without explicit schemas, using 'any' implicitly or defined TS types.
+    inputSchema: SayHelloInputSchema,
+    outputSchema: SayHelloOutputSchema,
   },
-  async (input: SayHelloInput) => {
-    // Basic input check since Zod is not used here.
-    // In a real scenario without Zod, you'd want more robust validation.
-    if (typeof input?.name !== 'string' || input.name.trim() === '') {
-      return `Hello, anonymous user! (Please provide a name). From Genkit.`;
-    }
-    return `Hello, ${input.name}! From Genkit.`;
+  async (input: SayHelloInput): Promise<SayHelloOutput> => {
+    const targetName = input.name?.trim() ? input.name.trim() : 'World';
+    return `Hello, ${targetName}! From Genkit.`;
   }
 );
 
