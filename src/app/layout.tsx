@@ -18,7 +18,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark"> {/* Force dark theme for Monokai */}
+    <html lang="en" className="dark">
+      {/* Force dark theme for Monokai */}
       <body className={`${GeistSans.variable} ${GeistMono.variable} ${inter.variable} antialiased bg-background text-foreground`}>
         {children}
         <Toaster />
