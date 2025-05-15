@@ -1,28 +1,30 @@
 
 "use client";
-import React, { useState } from 'react'; // Import useState
+import React, { useState } from 'react';
 import { useLambda } from '@/contexts/LambdaContext';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input'; // Import Input
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { Play, RotateCcw, Sigma, Save } from 'lucide-react'; // Import Save icon
+import { Play, RotateCcw, Sigma, Save, Zap } from 'lucide-react'; // Import Zap for "Reduce to Normal Form"
 import { ScrollArea } from '../ui/scroll-area';
 import { NamedExpressionsPanel } from './NamedExpressionsPanel';
-import { Separator } from '../ui/separator'; // Import Separator
+import { Separator } from '../ui/separator';
 
 export function ExpressionInputCard() {
   const {
     rawExpression,
     setRawExpression,
     performReductionStep,
+    reduceToNormalForm,
     reducedExpressionString,
+    fullyReducedString,
     isLoading,
     error,
     isReducible,
     resetState,
-    addCustomExpression, // Get addCustomExpression from context
+    addCustomExpression,
   } = useLambda();
 
   const [customTermName, setCustomTermName] = useState('');
@@ -35,7 +37,6 @@ export function ExpressionInputCard() {
   const handleInsertNamedExpression = (lambdaToInsert: string) => {
     setRawExpression(prev => {
       const currentText = prev.trim();
-      // Wrap the inserted lambda in parentheses
       const termToInsert = `(${lambdaToInsert})`; 
       if (currentText === "") {
         return termToInsert;
@@ -59,16 +60,16 @@ export function ExpressionInputCard() {
           <Sigma className="h-8 w-8 text-primary" />
           <CardTitle className="text-2xl font-semibold">LambdaVis</CardTitle>
         </div>
-        <CardDescription>Enter a Lambda Calculus expression (use 'L' or '\' for λ, or _NAME for defined terms) and see it evaluated step-by-step.</CardDescription>
+        <CardDescription>Enter a Lambda Calculus expression (e.g., `L`, `\`, `_ID`, `_TRUE`, `_2`) and evaluate it.</CardDescription>
       </CardHeader>
-      <CardContent className="flex-grow space-y-4 flex flex-col">
+      <CardContent className="flex-grow space-y-4 flex flex-col overflow-y-auto"> {/* Added overflow-y-auto here */}
         <div className="space-y-2">
           <Label htmlFor="lambda-expression" className="text-base">Expression</Label>
           <Textarea
             id="lambda-expression"
             value={rawExpression}
             onChange={handleInputChange}
-            placeholder="e.g., (Lx.x) (Ly.y) or _ID _TRUE"
+            placeholder="e.g., (Lx.x) (Ly.y) or _ID _TRUE or _PLUS _2 _1"
             className="font-mono text-base min-h-[80px] bg-input text-foreground placeholder:text-muted-foreground focus:ring-primary"
             rows={3}
           />
@@ -76,7 +77,7 @@ export function ExpressionInputCard() {
         </div>
 
         <div className="space-y-2">
-          <Label className="text-base">Predefined & Custom Terms (Click to insert as `(term)`) </Label>
+          <Label className="text-base">Predefined & Custom Terms (Click to insert)</Label>
           <NamedExpressionsPanel onInsert={handleInsertNamedExpression} />
         </div>
 
@@ -91,7 +92,7 @@ export function ExpressionInputCard() {
               value={customTermName}
               onChange={(e) => setCustomTermName(e.target.value)}
               className="bg-input text-foreground placeholder:text-muted-foreground focus:ring-primary"
-              pattern="^[a-zA-Z][a-zA-Z0-9_']*" // Basic pattern: starts with letter, then alphanumeric or underscore
+              pattern="^[a-zA-Z][a-zA-Z0-9_']*"
               title="Name must start with a letter and contain only letters, numbers, or underscores."
             />
             <Textarea
@@ -107,22 +108,36 @@ export function ExpressionInputCard() {
           </div>
         </div>
         
-        <div className="space-y-2 flex-grow flex flex-col min-h-[100px] mt-4">
-          <Label htmlFor="reduced-expression" className="text-base">Current Form</Label>
-          <ScrollArea className="flex-grow border rounded-md bg-input p-1 min-h-[60px]">
+        <div className="space-y-2 mt-4">
+          <Label htmlFor="reduced-expression" className="text-base">Current Form (Step-by-Step)</Label>
+          <ScrollArea className="border rounded-md bg-input p-1 min-h-[60px] max-h-[120px]">
             <pre id="reduced-expression" className="p-3 font-mono text-sm text-foreground whitespace-pre-wrap break-all">
-              {isLoading && !reducedExpressionString ? "Processing..." : reducedExpressionString}
+              {isLoading && !reducedExpressionString && !fullyReducedString ? "Processing..." : reducedExpressionString}
+            </pre>
+          </ScrollArea>
+        </div>
+
+        <div className="space-y-2 mt-auto"> {/* Pushes this to bottom if space allows */}
+          <Label htmlFor="fully-reduced-expression" className="text-base">Normal Form (Full Reduction)</Label>
+          <ScrollArea className="border rounded-md bg-muted p-1 min-h-[60px] max-h-[120px]">
+            <pre id="fully-reduced-expression" className="p-3 font-mono text-sm text-muted-foreground whitespace-pre-wrap break-all">
+              {isLoading && fullyReducedString === "Reducing..." ? "Reducing..." : (fullyReducedString || "Not yet fully reduced.")}
             </pre>
           </ScrollArea>
         </div>
       </CardContent>
-      <CardFooter className="flex flex-col sm:flex-row justify-between items-center gap-2 pt-4">
+      <CardFooter className="flex flex-col sm:flex-row justify-between items-center gap-2 pt-4 mt-auto">
         <Button onClick={() => resetState()} variant="outline" className="w-full sm:w-auto" disabled={isLoading}>
           <RotateCcw className="mr-2 h-4 w-4" /> Reset
         </Button>
-        <Button onClick={performReductionStep} disabled={isLoading || !isReducible || !!error} className="w-full sm:w-auto">
-          <Play className="mr-2 h-4 w-4" /> Reduce Step
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <Button onClick={performReductionStep} disabled={isLoading || !isReducible || !!error} className="w-full sm:w-auto">
+            <Play className="mr-2 h-4 w-4" /> Reduce Step
+          </Button>
+          <Button onClick={reduceToNormalForm} disabled={isLoading || !!error} className="w-full sm:w-auto" variant="secondary">
+            <Zap className="mr-2 h-4 w-4" /> Reduce to Normal Form
+          </Button>
+        </div>
       </CardFooter>
     </Card>
   );

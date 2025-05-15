@@ -8,7 +8,8 @@ import { predefinedExpressions } from './predefined'; // Import predefinedExpres
 // Basic tokenizer
 function tokenize(input: string): string[] {
   const sanitizedInput = input.replace(/[λL]/g, '\\');
-  const regex = /(\\)|(\()|(\))|(\.)|([a-zA-Z_][a-zA-Z0-9_']*)/g;
+  // Adjusted regex to better separate tokens, especially around _NAME patterns
+  const regex = /(\\)|(\()|(\))|(\.)|(_[a-zA-Z_][a-zA-Z0-9_']*)|(_\d+)|([a-zA-Z][a-zA-Z0-9_']*)/g;
   const tokens: string[] = [];
   let match;
   while ((match = regex.exec(sanitizedInput)) !== null) {
@@ -52,6 +53,13 @@ function parseTerm(): ASTNode {
     return expr;
   } else {
     if (token === '.' || token === ')') throw new Error(`Unexpected token "${token}" when expecting a variable, lambda, or parenthesized expression.`);
+    // Check if it's a _NAME or _NUMBER token, which should have been preprocessed.
+    // If they still exist here, it means they were not found during preprocessing (error or literal variable _name).
+    if (token.startsWith('_')) {
+        // Allow variables to start with underscore if they were not preprocessed (e.g. _myVar if not a defined term)
+        // However, parser expects _NAME to be expanded. If it reaches here, it's treated as a var.
+        // This behavior is acceptable for now.
+    }
     return { type: 'variable', name: consume(), id: generateNodeId() };
   }
 }
@@ -63,7 +71,7 @@ function parseLambda(): Lambda {
       throw new Error(`Invalid parameter name: expected variable after lambda but found "${paramToken || 'end of input'}"`);
   }
   const param = consume();
-  if (!param.match(/^[a-zA-Z_][a-zA-Z0-9_']*$/)) {
+  if (!param.match(/^[a-zA-Z_][a-zA-Z0-9_']*$/) && !param.match(/^_[a-zA-Z0-9_']*$/) /* allow vars like _temp */) {
       throw new Error(`Invalid parameter name syntax: "${param}"`);
   }
   consume('.');
@@ -81,24 +89,46 @@ function parsePrimaryExpressionSequence(): ASTNode {
   return left;
 }
 
-// Preprocess input to replace _NAME references with their definitions
+function generateChurchNumeral(n: number): string {
+  if (n < 0) throw new Error("Church numerals are not defined for negative numbers.");
+  let applications = 'x';
+  for (let i = 0; i < n; i++) {
+    applications = `f (${applications})`;
+  }
+  return `(λf.λx.${applications})`;
+}
+
+// Preprocess input to replace _NAME and _NUMBER references
 function preprocessInput(input: string, customTerms: NamedExpression[]): string {
-  const allTerms = [...predefinedExpressions, ...customTerms];
   let processedInput = input;
   let changedInIteration = true;
+  const maxIterations = 10; // Prevent infinite loops in substitution
 
-  // Iteratively replace to handle nested definitions, though direct recursion via _NAME isn't supported in definitions themselves
-  // This loop primarily ensures that terms defined using other _OTHER_TERMS are expanded.
-  // A fixed number of iterations can prevent infinite loops if such a case was allowed. Max 10 levels of nesting.
-  for (let i = 0; i < 10 && changedInIteration; i++) {
+  // Phase 1: Substitute dynamic Church numerals _N
+  // This regex finds _ followed by one or more digits
+  processedInput = processedInput.replace(/\b_(\d+)\b/g, (match, numberStr) => {
+    const n = parseInt(numberStr, 10);
+    try {
+      return generateChurchNumeral(n);
+    } catch (e) {
+      // If numeral generation fails (e.g., _-1), keep original for parser to handle/error
+      return match; 
+    }
+  });
+  
+  // Phase 2: Substitute predefined and custom named expressions _NAME
+  const allTerms = [...predefinedExpressions, ...customTerms];
+  // Iteratively replace to handle nested definitions
+  for (let i = 0; i < maxIterations && changedInIteration; i++) {
     changedInIteration = false;
+    // This regex finds _ followed by a letter, then letters, numbers, or underscores
     processedInput = processedInput.replace(/\b_([a-zA-Z][a-zA-Z0-9_']*)\b/g, (match, termName) => {
       const term = allTerms.find(t => t.name === termName);
       if (term) {
         changedInIteration = true;
         return `(${term.lambda})`; // Wrap in parentheses to maintain precedence
       }
-      return match; // If not found, leave it as is (parser will likely error or treat as var)
+      return match; // If not found, leave it (parser will treat as variable or error)
     });
   }
   return processedInput;

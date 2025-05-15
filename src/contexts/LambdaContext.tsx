@@ -1,11 +1,11 @@
 
 "use client";
-import type { ASTNode } from '@/lib/lambda-calculus/types';
+import type { ASTNode, ASTNodeId } from '@/lib/lambda-calculus/types';
 import type { NamedExpression } from '@/lib/lambda-calculus/predefined';
 import { predefinedExpressions } from '@/lib/lambda-calculus/predefined';
 import { parse } from '@/lib/lambda-calculus/parser';
 import { print } from '@/lib/lambda-calculus/printer';
-import { reduceStep } from '@/lib/lambda-calculus/reducer';
+import { reduceStep, cloneAST } from '@/lib/lambda-calculus/reducer';
 import React, { createContext, useContext, useState, ReactNode, useCallback, useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
 
@@ -18,6 +18,7 @@ interface LambdaState {
   error: string | null;
   isLoading: boolean;
   reducedExpressionString: string;
+  fullyReducedString: string; // For the result of reduceToNormalForm
   isReducible: boolean;
   highlightedRedexId?: string;
   customExpressions: NamedExpression[];
@@ -26,14 +27,16 @@ interface LambdaState {
 interface LambdaContextType extends LambdaState {
   setRawExpression: (value: string | ((prevState: string) => string)) => void;
   performReductionStep: () => void;
+  reduceToNormalForm: () => void;
   resetState: (initialExpression?: string) => void;
   addCustomExpression: (name: string, lambda: string) => boolean;
-  // removeCustomExpression: (name: string) => void; // Future: for removing expressions
+  removeCustomExpression: (name: string) => void;
 }
 
 const LambdaContext = createContext<LambdaContextType | undefined>(undefined);
 
 const INITIAL_EXPRESSION = "(λx.λy.x y) (λz.z)";
+const MAX_FULL_REDUCTION_STEPS = 100;
 
 export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, setState] = useState<LambdaState>({
@@ -43,19 +46,18 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     error: null,
     isLoading: false,
     reducedExpressionString: "",
+    fullyReducedString: "",
     isReducible: false,
     customExpressions: [],
   });
 
   const { toast } = useToast();
 
-  // Load custom expressions from localStorage on mount
   useEffect(() => {
     try {
       const storedCustomExpressions = localStorage.getItem(CUSTOM_EXPRESSIONS_STORAGE_KEY);
       if (storedCustomExpressions) {
         const parsedExpressions: NamedExpression[] = JSON.parse(storedCustomExpressions);
-         // Basic validation
         if (Array.isArray(parsedExpressions) && parsedExpressions.every(item => typeof item.name === 'string' && typeof item.lambda === 'string')) {
             setState(prevState => ({ ...prevState, customExpressions: parsedExpressions }));
         } else {
@@ -71,11 +73,11 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
 
   const parseAndSetAST = useCallback((expression: string, currentCustomExpressions: NamedExpression[]) => {
-    setState(prevState => ({ ...prevState, isLoading: true, error: null }));
+    setState(prevState => ({ ...prevState, isLoading: true, error: null, fullyReducedString: "" })); // Clear fullyReducedString on new parse
     try {
       const ast = parse(expression, currentCustomExpressions);
       const printedAst = print(ast);
-      const checkReduce = reduceStep(ast);
+      const checkReduce = reduceStep(ast); // Performs initial redex check
       setState(prevState => ({
         ...prevState,
         currentAST: ast,
@@ -119,11 +121,8 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
 
   const setRawExpression = (value: string | ((prevState: string) => string)) => {
-    if (typeof value === 'function') {
-      setState(prevState => ({ ...prevState, rawExpression: value(prevState.rawExpression) }));
-    } else {
-      setState(prevState => ({ ...prevState, rawExpression: value }));
-    }
+    const newRawExpression = typeof value === 'function' ? value(state.rawExpression) : value;
+    setState(prevState => ({ ...prevState, rawExpression: newRawExpression, fullyReducedString: "" })); // Clear fullyReducedString
   };
 
   const performReductionStep = () => {
@@ -131,11 +130,9 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       toast({ title: "Cannot Reduce", description: "Expression is not reducible or no AST.", variant: "default" });
       return;
     }
-    setState(prevState => ({ ...prevState, isLoading: true }));
+    setState(prevState => ({ ...prevState, isLoading: true, fullyReducedString: "" }));
     try {
       const astToReduce = state.currentAST;
-      // Pass custom expressions to reduceStep if it involves parsing (it doesn't directly, but good practice if it could)
-      // For now, reduceStep itself doesn't re-parse strings with _NAME syntax. Substitution happens on AST.
       const { newAst, changed, redexId } = reduceStep(astToReduce);
       
       if (changed) {
@@ -164,10 +161,54 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       setState(prevState => ({ ...prevState, error: errorMessage, isLoading: false, isReducible: false }));
     }
   };
+
+  const reduceToNormalForm = () => {
+    if (!state.currentAST) {
+      toast({ title: "Cannot Reduce", description: "No AST to reduce.", variant: "default" });
+      setState(prevState => ({ ...prevState, fullyReducedString: "Error: No AST" }));
+      return;
+    }
+    setState(prevState => ({ ...prevState, isLoading: true, fullyReducedString: "Reducing..." }));
+  
+    let astForFullReduction = cloneAST(state.currentAST); // Work on a copy for full reduction
+    let steps = 0;
+    let reducibleCurrent = true;
+  
+    try {
+      while (reducibleCurrent && steps < MAX_FULL_REDUCTION_STEPS) {
+        const { newAst, changed } = reduceStep(astForFullReduction); // Don't need redexId for full reduction display logic
+        if (changed) {
+          astForFullReduction = newAst;
+          steps++;
+        } else {
+          reducibleCurrent = false;
+        }
+      }
+  
+      const finalString = print(astForFullReduction);
+      setState(prevState => ({
+        ...prevState,
+        isLoading: false,
+        fullyReducedString: finalString,
+        // Do not update currentAST/isReducible here, as this is a separate display.
+        // The main AST and step-by-step reduction remain independent.
+      }));
+  
+      if (steps === MAX_FULL_REDUCTION_STEPS && reducibleCurrent) {
+        toast({ title: "Max Steps Reached", description: `Reduction stopped after ${MAX_FULL_REDUCTION_STEPS} steps. Result may not be normal form.`, variant: "destructive" });
+      } else if (!reducibleCurrent) {
+        toast({ title: "Normal Form Reached", description: `Reduced to normal form in ${steps} step(s).`, variant: "default" });
+      }
+    } catch (e: any) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      toast({ title: "Full Reduction Error", description: errorMessage, variant: "destructive" });
+      setState(prevState => ({ ...prevState, isLoading: false, fullyReducedString: `Error: ${errorMessage}` }));
+    }
+  };
   
   const resetState = (initialExpression: string = INITIAL_EXPRESSION) => {
-    setRawExpression(initialExpression);
-    parseAndSetAST(initialExpression, state.customExpressions);
+    setRawExpression(initialExpression); // This will trigger parseAndSetAST via useEffect
+    setState(prevState => ({ ...prevState, fullyReducedString: ""})); // Explicitly clear fullyReducedString too
   };
 
   const addCustomExpression = (name: string, lambda: string): boolean => {
@@ -185,7 +226,6 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
 
     try {
-      // Try to parse the lambda to ensure it's valid. Pass an empty array for customTerms to avoid self-reference issues during validation.
       parse(lambda, []); 
     } catch (e: any) {
       const parseError = e instanceof Error ? e.message : String(e);
@@ -198,10 +238,9 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     
     try {
       localStorage.setItem(CUSTOM_EXPRESSIONS_STORAGE_KEY, JSON.stringify(updatedCustomExpressions));
+      // The setState below will trigger the useEffect that calls parseAndSetAST because state.customExpressions changes.
       setState(prevState => ({ ...prevState, customExpressions: updatedCustomExpressions }));
       toast({ title: "Success", description: `Custom term "${name}" saved!`, variant: "default" });
-      // Re-parse current expression with the new custom term available
-      parseAndSetAST(state.rawExpression, updatedCustomExpressions);
       return true;
     } catch (error) {
         console.error("Failed to save custom expressions to localStorage:", error);
@@ -210,8 +249,25 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   };
 
+  const removeCustomExpression = (name: string) => {
+    const updatedCustomExpressions = state.customExpressions.filter(expr => expr.name !== name);
+    try {
+      localStorage.setItem(CUSTOM_EXPRESSIONS_STORAGE_KEY, JSON.stringify(updatedCustomExpressions));
+      // This setState will trigger re-parse via useEffect due to customExpressions dependency.
+      setState(prevState => ({
+        ...prevState,
+        customExpressions: updatedCustomExpressions,
+      }));
+      toast({ title: "Success", description: `Custom term "${name}" removed.`, variant: "default" });
+    } catch (error) {
+      console.error("Failed to remove custom expression from localStorage:", error);
+      toast({ title: "Storage Error", description: "Could not remove custom term due to local storage issue.", variant: "destructive" });
+    }
+  };
+
+
   return (
-    <LambdaContext.Provider value={{ ...state, setRawExpression, performReductionStep, resetState, addCustomExpression }}>
+    <LambdaContext.Provider value={{ ...state, setRawExpression, performReductionStep, reduceToNormalForm, resetState, addCustomExpression, removeCustomExpression }}>
       {children}
     </LambdaContext.Provider>
   );
