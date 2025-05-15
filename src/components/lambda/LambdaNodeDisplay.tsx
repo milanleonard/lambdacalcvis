@@ -1,7 +1,7 @@
 import type { Lambda } from '@/lib/lambda-calculus/types';
 import { ASTNodeComponent } from './ASTNodeComponent';
 import { cn } from '@/lib/utils';
-import { Lambda as LambdaIconLucide } from 'lucide-react';
+// Removed: import { Lambda as LambdaIconLucide } from 'lucide-react';
 
 
 interface LambdaNodeProps {
@@ -23,7 +23,7 @@ export function LambdaNodeDisplay({ node, depth, isHighlighted, redexIdToHighlig
       title={`Lambda: λ${node.param}.(...)`}
     >
       <div className="flex items-center font-mono text-lg font-semibold">
-        <LambdaIconLucide className="w-5 h-5 mr-1 text-[hsl(var(--ast-lambda-fg))]" />
+        <span className="mr-1 text-[hsl(var(--ast-lambda-fg))] text-xl">λ</span>
         <span>{node.param}.</span>
       </div>
       <div className="mt-2 pl-4 border-l-2 border-dashed border-[hsl(var(--ast-lambda-fg)/0.3)]">
