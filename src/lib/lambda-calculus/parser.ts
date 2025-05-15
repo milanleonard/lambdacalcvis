@@ -4,17 +4,20 @@ import { generateNodeId } from './types';
 
 // Basic tokenizer
 function tokenize(input: string): string[] {
-  const sanitizedInput = input.replace(/λ/g, '\\').replace(/L/g, '\\'); // Added .replace(/L/g, '\\')
-  // Add spaces around parentheses and dot for easier splitting, but not if dot is part of a var name (though typically vars are single char)
-  // This tokenizer is very basic and expects space-separated tokens or specific symbols.
-  const spacedInput = sanitizedInput
-    .replace(/\(/g, ' ( ')
-    .replace(/\)/g, ' ) ')
-    .replace(/\\/g, ' \\ ') // Ensure our internal representation '\' is spaced
-    .replace(/\.(?!\w)/g, ' . '); // Space around dot unless it's part of an identifier (e.g. x.y, though not common in pure LC var names)
-                                // More robustly, ensure dot is spaced if it's for lambda: \x.y vs application x.y (latter invalid syntax typically)
-                                // For LC, dot is primarily for lambda abstraction.
-  return spacedInput.trim().split(/\s+/).filter(token => token.length > 0);
+  const sanitizedInput = input.replace(/[λL]/g, '\\'); // Normalize lambda symbols (λ, L) to '\'
+  // Regex to match lambda symbol '\', parentheses '()', dot '.', or variable names.
+  // Variable names are sequences of letters, numbers, underscore, or apostrophe, starting with a letter or underscore.
+  const regex = /(\\)|(\()|(\))|(\.)|([a-zA-Z_][a-zA-Z0-9_']*)/g;
+  const tokens: string[] = [];
+  let match;
+  // Iterate over all matches in the input string
+  while ((match = regex.exec(sanitizedInput)) !== null) {
+    // match[0] contains the matched token
+    if (match[0]) { // Ensure the matched token is not empty
+        tokens.push(match[0]);
+    }
+  }
+  return tokens; // The regex is designed to only match valid tokens.
 }
 
 // Parser state
@@ -37,11 +40,6 @@ function consume(expectedToken?: string): string {
   return token;
 }
 
-// expr := variable | lambda | application | ( expr )
-// This function was part of an older parsing attempt, replaced by parsePrimaryExpressionSequence and parseTerm
-// function parseExpression(): ASTNode { ... }
-
-
 // term := variable | lambda | ( sequence )
 function parseTerm(): ASTNode {
   const token = peek();
@@ -51,7 +49,7 @@ function parseTerm(): ASTNode {
     return parseLambda();
   } else if (token === '(') {
     consume('(');
-    const expr = parsePrimaryExpressionSequence(); 
+    const expr = parsePrimaryExpressionSequence();
     consume(')');
     return expr;
   } else {
@@ -68,12 +66,12 @@ function parseLambda(): Lambda {
   if (!paramToken || paramToken === '.' || paramToken === '(' || paramToken === ')') {
       throw new Error(`Invalid parameter name: expected variable after lambda but found "${paramToken || 'end of input'}"`);
   }
-  const param = consume(); 
+  const param = consume();
   if (!param.match(/^[a-zA-Z_][a-zA-Z0-9_']*$/)) { // Allow apostrophes for freshness
       throw new Error(`Invalid parameter name syntax: "${param}"`);
   }
   consume('.');
-  const body = parsePrimaryExpressionSequence(); 
+  const body = parsePrimaryExpressionSequence();
   return { type: 'lambda', param, body, id: generateNodeId() };
 }
 
@@ -83,8 +81,6 @@ function parsePrimaryExpressionSequence(): ASTNode {
   let left = parseTerm();
 
   while (peek() !== null && peek() !== ')' && peek() !== '.') {
-    // If the next token is not suitable to start a new term (e.g. another lambda '\' or opening '(', or variable), it's an error.
-    // This is implicitly handled by parseTerm() which will throw if it encounters unexpected tokens where it expects a term.
     const right = parseTerm();
     left = { type: 'application', func: left, arg: right, id: generateNodeId() };
   }
@@ -93,12 +89,20 @@ function parsePrimaryExpressionSequence(): ASTNode {
 
 
 export function parse(input: string): ASTNode {
-  if (!input.trim()) {
-    throw new Error("Input expression cannot be empty.");
+  if (typeof input !== 'string' || !input.trim()) {
+    throw new Error("Input expression cannot be empty or is not a string.");
   }
   tokens = tokenize(input);
   currentTokenIndex = 0;
-  
+
+  if (tokens.length === 0 && input.trim().length > 0) {
+    throw new Error(`Could not tokenize input: "${input}". No valid tokens found.`);
+  }
+   if (tokens.length === 0 && input.trim().length === 0) {
+    throw new Error("Input expression is empty after sanitization or consists only of whitespace.");
+  }
+
+
   const ast = parsePrimaryExpressionSequence();
 
   if (currentTokenIndex < tokens.length) {
@@ -106,4 +110,3 @@ export function parse(input: string): ASTNode {
   }
   return ast;
 }
-

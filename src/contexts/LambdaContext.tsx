@@ -19,7 +19,7 @@ interface LambdaState {
 }
 
 interface LambdaContextType extends LambdaState {
-  setRawExpression: (expr: string) => void;
+  setRawExpression: (value: string | ((prevState: string) => string)) => void;
   performReductionStep: () => void;
   resetState: (initialExpression?: string) => void;
 }
@@ -74,14 +74,31 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   }, [toast]);
 
+  // Effect to parse expression when rawExpression changes
   useEffect(() => {
-    parseAndSetAST(state.rawExpression);
+    if (typeof state.rawExpression === 'string') {
+      parseAndSetAST(state.rawExpression);
+    } else {
+      // This case should ideally not happen if setRawExpression is typed correctly
+      // and state updates are consistent. Logging an error if it does.
+      console.error("rawExpression is not a string:", state.rawExpression);
+      setState(prevState => ({
+        ...prevState,
+        error: "Internal error: expression is not a string.",
+        isLoading: false,
+        reducedExpressionString: "Error",
+        isReducible: false,
+      }));
+    }
   }, [state.rawExpression, parseAndSetAST]);
 
 
-  const setRawExpression = (expr: string) => {
-    setState(prevState => ({ ...prevState, rawExpression: expr }));
-    // Parsing will be handled by the useEffect
+  const setRawExpression = (value: string | ((prevState: string) => string)) => {
+    if (typeof value === 'function') {
+      setState(prevState => ({ ...prevState, rawExpression: value(prevState.rawExpression) }));
+    } else {
+      setState(prevState => ({ ...prevState, rawExpression: value }));
+    }
   };
 
   const performReductionStep = () => {
@@ -91,14 +108,12 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
     setState(prevState => ({ ...prevState, isLoading: true }));
     try {
-      // Make a deep copy for reduction to ensure state immutability and new keys for animation
-      const astToReduce = state.currentAST; // reduceStep will clone internally if needed
+      const astToReduce = state.currentAST;
       const { newAst, changed, redexId } = reduceStep(astToReduce);
       
       if (changed) {
         const printedNewAst = print(newAst);
-        // Check if the new AST is further reducible
-        const checkNextReduce = reduceStep(newAst); // Safe, reduceStep clones
+        const checkNextReduce = reduceStep(newAst);
         setState(prevState => ({
           ...prevState,
           currentAST: newAst,
@@ -107,12 +122,11 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           isLoading: false,
           error: null,
           isReducible: checkNextReduce.changed,
-          highlightedRedexId: redexId, // Highlight the redex that was just reduced
+          highlightedRedexId: redexId, 
         }));
-        // After a short delay, clear the highlight if we want it to be transient
         setTimeout(() => {
             setState(s => ({...s, highlightedRedexId: checkNextReduce.changed ? checkNextReduce.redexId : undefined}))
-        }, 500); // 500ms for highlight to be visible
+        }, 500);
       } else {
         toast({ title: "Normal Form", description: "Expression is in normal form.", variant: "default" });
         setState(prevState => ({ ...prevState, isLoading: false, isReducible: false, highlightedRedexId: undefined }));
@@ -125,7 +139,11 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
   
   const resetState = (initialExpression: string = INITIAL_EXPRESSION) => {
+     // Use the updated setRawExpression to ensure proper handling
     setRawExpression(initialExpression);
+    // Explicitly trigger parsing for the reset state if needed, though useEffect should handle it.
+    // However, to ensure immediate feedback from reset:
+    parseAndSetAST(initialExpression);
   };
 
   return (
