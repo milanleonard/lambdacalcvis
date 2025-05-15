@@ -1,16 +1,19 @@
+
 import type { ASTNode, Variable, Lambda, Application } from './types';
 import { generateNodeId } from './types';
 
 // Basic tokenizer
 function tokenize(input: string): string[] {
-  const sanitizedInput = input.replace(/λ/g, '\\');
+  const sanitizedInput = input.replace(/λ/g, '\\').replace(/L/g, '\\'); // Added .replace(/L/g, '\\')
   // Add spaces around parentheses and dot for easier splitting, but not if dot is part of a var name (though typically vars are single char)
   // This tokenizer is very basic and expects space-separated tokens or specific symbols.
   const spacedInput = sanitizedInput
     .replace(/\(/g, ' ( ')
     .replace(/\)/g, ' ) ')
-    .replace(/\\/g, ' \\ ')
-    .replace(/\./g, ' . ');
+    .replace(/\\/g, ' \\ ') // Ensure our internal representation '\' is spaced
+    .replace(/\.(?!\w)/g, ' . '); // Space around dot unless it's part of an identifier (e.g. x.y, though not common in pure LC var names)
+                                // More robustly, ensure dot is spaced if it's for lambda: \x.y vs application x.y (latter invalid syntax typically)
+                                // For LC, dot is primarily for lambda abstraction.
   return spacedInput.trim().split(/\s+/).filter(token => token.length > 0);
 }
 
@@ -25,74 +28,52 @@ function peek(): string | null {
 function consume(expectedToken?: string): string {
   const token = tokens[currentTokenIndex];
   if (expectedToken && token !== expectedToken) {
-    throw new Error(`Expected token "${expectedToken}" but found "${token}" at index ${currentTokenIndex}`);
+    throw new Error(`Expected token "${expectedToken}" but found "${token}" at index ${currentTokenIndex}. Input: '${tokens.join(' ')}'`);
+  }
+  if (currentTokenIndex >= tokens.length) {
+    throw new Error(`Unexpected end of input. Expected ${expectedToken ? '"' + expectedToken + '"' : 'more tokens'}.`);
   }
   currentTokenIndex++;
   return token;
 }
 
 // expr := variable | lambda | application | ( expr )
-function parseExpression(): ASTNode {
-  const token = peek();
-  if (!token) throw new Error("Unexpected end of input");
-
-  if (token === '\\') {
-    return parseLambda();
-  } else if (token === '(') {
-    consume('(');
-    let node = parseExpression();
-    // Handle applications within parentheses: (M N) or more complex ((M N) P)
-    while(peek() !== ')') {
-      const arg = parseExpression(); // This might be too greedy. For M N P, it becomes App(M,N) then App(App(M,N),P)
-      node = { type: 'application', func: node, arg, id: generateNodeId() };
-      if (peek() === null) throw new Error("Missing closing parenthesis for expression");
-    }
-    consume(')');
-    return node;
-  } else {
-    // Variable or start of an application sequence (e.g., x y z)
-    let node: ASTNode = { type: 'variable', name: consume(), id: generateNodeId() };
-    // Left-associative application parsing: x y z -> ((x y) z)
-    while (peek() !== null && peek() !== ')' && peek() !== '.') {
-      const arg = parseExpression(); // This recursive call needs to be careful not to consume too much
-      node = { type: 'application', func: node, arg, id: generateNodeId() };
-    }
-    return node;
-  }
-}
+// This function was part of an older parsing attempt, replaced by parsePrimaryExpressionSequence and parseTerm
+// function parseExpression(): ASTNode { ... }
 
 
-// Simplified application parsing - assumes M N P is App(App(M,N),P)
-// And relies on parentheses for other groupings.
-// This is a common challenge in Pratt parsers or recursive descent with operator precedence.
-// For simplicity, we'll adjust. The main `parse` function will handle sequences.
-
+// term := variable | lambda | ( sequence )
 function parseTerm(): ASTNode {
   const token = peek();
   if (!token) throw new Error("Unexpected end of input in parseTerm");
 
-  if (token === '\\') {
+  if (token === '\\') { // Using internal representation '\'
     return parseLambda();
   } else if (token === '(') {
     consume('(');
-    const expr = parsePrimaryExpressionSequence(); // Changed from parseExpression to handle sequence
+    const expr = parsePrimaryExpressionSequence(); 
     consume(')');
     return expr;
   } else {
     // Variable
+    if (token === '.' || token === ')') throw new Error(`Unexpected token "${token}" when expecting a variable, lambda, or parenthesized expression.`);
     return { type: 'variable', name: consume(), id: generateNodeId() };
   }
 }
 
-// lambda := \ variable . expr
+// lambda := \ variable . sequence
 function parseLambda(): Lambda {
-  consume('\\');
-  const param = consume(); // Variable name
-  if (!param.match(/^[a-zA-Z_][a-zA-Z0-9_]*$/)) { // Basic variable name validation
-      throw new Error(`Invalid parameter name: ${param}`);
+  consume('\\'); // Using internal representation '\'
+  const paramToken = peek();
+  if (!paramToken || paramToken === '.' || paramToken === '(' || paramToken === ')') {
+      throw new Error(`Invalid parameter name: expected variable after lambda but found "${paramToken || 'end of input'}"`);
+  }
+  const param = consume(); 
+  if (!param.match(/^[a-zA-Z_][a-zA-Z0-9_']*$/)) { // Allow apostrophes for freshness
+      throw new Error(`Invalid parameter name syntax: "${param}"`);
   }
   consume('.');
-  const body = parsePrimaryExpressionSequence(); // Changed from parseExpression
+  const body = parsePrimaryExpressionSequence(); 
   return { type: 'lambda', param, body, id: generateNodeId() };
 }
 
@@ -102,6 +83,8 @@ function parsePrimaryExpressionSequence(): ASTNode {
   let left = parseTerm();
 
   while (peek() !== null && peek() !== ')' && peek() !== '.') {
+    // If the next token is not suitable to start a new term (e.g. another lambda '\' or opening '(', or variable), it's an error.
+    // This is implicitly handled by parseTerm() which will throw if it encounters unexpected tokens where it expects a term.
     const right = parseTerm();
     left = { type: 'application', func: left, arg: right, id: generateNodeId() };
   }
@@ -123,3 +106,4 @@ export function parse(input: string): ASTNode {
   }
   return ast;
 }
+
