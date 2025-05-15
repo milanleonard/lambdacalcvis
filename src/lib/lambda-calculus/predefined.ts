@@ -10,8 +10,8 @@ export const predefinedExpressions: NamedExpression[] = [
   { name: "TRUE", lambda: "λx.λy.x", description: "Church Boolean True (Kestrel)" },
   { name: "FALSE", lambda: "λx.λy.y", description: "Church Boolean False (Kite)" },
   { name: "NOT", lambda: "λp.p (λx.λy.y) (λx.λy.x)", description: "Boolean NOT (λp.p FALSE TRUE)" },
-  { name: "AND", lambda: "λp.λq.p q (λx.λy.y)", description: "Boolean AND (λp.λq.p q FALSE)" }, // p q FALSE
-  { name: "OR", lambda: "λp.λq.p (λx.λy.x) q", description: "Boolean OR (λp.λq.p TRUE q)" }, // p TRUE q
+  { name: "AND", lambda: "λp.λq.p q (λx.λy.y)", description: "Boolean AND (λp.λq.p q FALSE)" },
+  { name: "OR", lambda: "λp.λq.p (λx.λy.x) q", description: "Boolean OR (λp.λq.p TRUE q)" },
   { name: "ZERO", lambda: "λf.λx.x", description: "Church Numeral 0" },
   { name: "ONE", lambda: "λf.λx.f x", description: "Church Numeral 1" },
   { name: "TWO", lambda: "λf.λx.f (f x)", description: "Church Numeral 2" },
