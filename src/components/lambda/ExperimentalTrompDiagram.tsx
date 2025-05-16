@@ -128,19 +128,23 @@ export function ExperimentalTrompDiagram() {
     const renderElementToJsx = (el: SvgElementData) => {
       let strokeColor = getPrimitiveColor(el.sourcePrimitiveName) || DEFAULT_STROKE_COLOR;
       let currentStrokeWidth = baseStrokeW;
+      let animationClass = "";
 
       if (el.isHighlighted) {
         strokeColor = HIGHLIGHT_COLOR;
         currentStrokeWidth = highlightedStrokeW;
+        animationClass = "animate-ubarFocus"; // Apply focus animation to primary highlighted U-bar
       } else if (el.isSecondaryHighlight) {
         strokeColor = SECONDARY_HIGHLIGHT_COLOR;
         currentStrokeWidth = highlightedStrokeW * 0.8;
+        // The argument block as a whole gets 'animate-argumentPopIn'
       }
 
       const commonProps = {
         stroke: strokeColor,
         strokeWidth: currentStrokeWidth,
         fill: "none",
+        className: animationClass,
       };
 
       if (el.type === 'line') {
@@ -177,16 +181,16 @@ export function ExperimentalTrompDiagram() {
     diagramData.svgElements.forEach((el) => {
       const jsxEl = renderElementToJsx(el);
       if (jsxEl) {
-        if (el.isSecondaryHighlight) {
+        if (el.isSecondaryHighlight) { // Argument elements are grouped
           argJsx.push(jsxEl);
-        } else {
+        } else { // Other elements, including primary highlighted U-bar
           otherJsx.push(jsxEl);
         }
       }
     });
 
     return { argumentElementsJsx: argJsx, otherElementsJsx: otherJsx };
-  }, [diagramData, autoScale]);
+  }, [diagramData, autoScale, highlightedRedexId]); // Add highlightedRedexId to dependencies to re-evaluate classes
 
 
   return (
@@ -240,7 +244,7 @@ export function ExperimentalTrompDiagram() {
                 {argumentElementsJsx.length > 0 && (
                   <g 
                     id="redex-argument-block-group" 
-                    key={`arg-group-${currentAST?.id}-${highlightedRedexId || 'no-arg'}`}
+                    key={`arg-group-${currentAST?.id}-${highlightedRedexId || 'no-arg'}`} // Key to re-trigger animation
                     className={cn(argumentElementsJsx.length > 0 && "animate-argumentPopIn")}
                   >
                     {argumentElementsJsx}

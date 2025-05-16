@@ -98,6 +98,15 @@ code, pre, .font-mono {
 
 .animate-argumentPopIn {
   animation: argumentPopIn 0.3s ease-out forwards;
-  /* Ensure transform-origin is centered if scaling group directly */
   transform-origin: center center; 
+}
+
+/* Animation for Experimental Tromp Diagram U-bar Focus */
+@keyframes ubarFocus {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.animate-ubarFocus {
+  animation: ubarFocus 0.4s ease-in-out;
 }
