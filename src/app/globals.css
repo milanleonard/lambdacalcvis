@@ -84,7 +84,8 @@ code, pre, .font-mono {
   animation: highlightPulse 1s ease-out;
 }
 
-/* Animation for Tromp Diagram updates */
+/* Animation for Tromp Diagram updates - REMOVED */
+/*
 @keyframes trompDiagramFadeIn {
   from { opacity: 0.3; }
   to { opacity: 1; }
@@ -92,3 +93,4 @@ code, pre, .font-mono {
 .animate-trompDiagramFadeIn {
   animation: trompDiagramFadeIn 0.4s ease-in-out;
 }
+*/
