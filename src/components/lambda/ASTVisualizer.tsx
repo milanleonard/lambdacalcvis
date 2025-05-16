@@ -1,6 +1,6 @@
 
 "use client";
-import React, { useMemo, useState, useRef, WheelEvent, MouseEvent as ReactMouseEvent, useCallback } from 'react';
+import React, { useMemo, useState, useRef, WheelEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect } from 'react';
 import { useLambda } from '@/contexts/LambdaContext';
 import { generateAstSvgData, AstSvgRenderData, SvgAstNode, SvgLambdaNode, SvgVariableNode, SvgApplicationNode } from '@/lib/lambda-calculus/ast-svg/ast-svg-loader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,8 +13,8 @@ const NODE_FONT_SIZE = 14;
 const NODE_RX = 6; // Corner radius
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 5;
-const FIT_PADDING_FACTOR = 0.9; // For "fit to view", show 90% of content, 5% padding each side
-const MIN_VISIBLE_CONTENT_PERCENTAGE = 0.1; // For panning bounds, ensure at least 10% of content is visible
+const FIT_PADDING_FACTOR = 0.9; 
+const MIN_VISIBLE_CONTENT_PERCENTAGE = 0.1; // Ensure at least 10% of content is visible when larger than view
 
 // Helper function to get node specific styles
 const getNodeStyles = (node: SvgAstNode) => {
@@ -80,19 +80,70 @@ export function ASTVisualizer() {
 
     const containerWidth = svgContainerRef.current.clientWidth;
     const containerHeight = svgContainerRef.current.clientHeight;
-    const contentScaledWidth = svgRenderData.canvasWidth * currentScale;
-    const contentScaledHeight = svgRenderData.canvasHeight * currentScale;
-
-    // Determine minimum visible part of the content
-    const minVisibleX = Math.max(10, contentScaledWidth * MIN_VISIBLE_CONTENT_PERCENTAGE);
-    const minVisibleY = Math.max(10, contentScaledHeight * MIN_VISIBLE_CONTENT_PERCENTAGE);
     
-    const minTx = containerWidth - minVisibleX - contentScaledWidth;
-    const maxTx = minVisibleX;
+    // Content dimensions in its own coordinate system (before scaling)
+    const contentNaturalWidth = svgRenderData.canvasWidth;
+    const contentNaturalHeight = svgRenderData.canvasHeight;
 
-    const minTy = containerHeight - minVisibleY - contentScaledHeight;
-    const maxTy = minVisibleY;
+    // Content dimensions scaled to screen space
+    const contentScaledWidth = contentNaturalWidth * currentScale;
+    const contentScaledHeight = contentNaturalHeight * currentScale;
+
+    let minTx, maxTx, minTy, maxTy;
+
+    if (contentScaledWidth <= containerWidth) {
+      // Content is narrower than or same width as container.
+      // Allow panning from fully left to fully right.
+      minTx = 0;
+      maxTx = containerWidth - contentScaledWidth;
+    } else {
+      // Content is wider than container.
+      // Ensure at least MIN_VISIBLE_CONTENT_PERCENTAGE of the content is visible, or 10px.
+      const minVisiblePartX = Math.max(10, contentScaledWidth * MIN_VISIBLE_CONTENT_PERCENTAGE);
+      
+      // Left edge of content (targetTx) cannot be further right than (containerWidth - minVisiblePartX)
+      maxTx = containerWidth - minVisiblePartX;
+      // Right edge of content (targetTx + contentScaledWidth) cannot be further left than minVisiblePartX
+      minTx = minVisiblePartX - contentScaledWidth;
+    }
+
+    if (contentScaledHeight <= containerHeight) {
+      minTy = 0;
+      maxTy = containerHeight - contentScaledHeight;
+    } else {
+      const minVisiblePartY = Math.max(10, contentScaledHeight * MIN_VISIBLE_CONTENT_PERCENTAGE);
+      maxY = containerHeight - minVisiblePartY;
+      minTy = minVisiblePartY - contentScaledHeight;
+    }
     
+    // If container is very small, min might become > max. Swap them or pick a strategy.
+    // For now, if this happens (e.g. minVisiblePartX > containerWidth), clamp will effectively pin it.
+    if (minTx > maxTx) { 
+      // This can happen if minVisiblePartX is larger than containerWidth (e.g. content is huge, 10% of it is > Cw)
+      // Or if contentScaledWidth is slightly larger than containerWidth, but minVisiblePartX pushes maxTx below minTx.
+      // A reasonable fallback is to center it as much as possible or allow full pan.
+      // For simplicity, let's swap to ensure clampValue works as expected. The values might be "tight".
+       [minTx, maxTx] = [(containerWidth - contentScaledWidth)/2, (containerWidth - contentScaledWidth)/2]; // Effectively lock if confused
+       // A better strategy might be:
+       // minTx = containerWidth - contentScaledWidth; // Align right edge
+       // maxTx = 0; // Align left edge
+       // Then clamp will pick one.
+       // The current logic minX = minVisiblePartX - Ws, maxX = Cw - minVisiblePartX should work generally.
+       // If maxTx < minTx, it means there's no valid range, often because minVisiblePartX is too large for Cw.
+       // In this scenario, effectively, the content must fill the view.
+       // tx can range from Cw - Ws to 0.
+       if (contentScaledWidth > containerWidth) { // Re-check for this specific sub-case
+            minTx = containerWidth - contentScaledWidth;
+            maxTx = 0;
+       }
+    }
+    if (minTy > maxTy) {
+       if (contentScaledHeight > containerHeight) {
+            minTy = containerHeight - contentScaledHeight;
+            maxTy = 0;
+       }
+    }
+
     return {
       x: clampValue(targetTx, minTx, maxTx),
       y: clampValue(targetTy, minTy, maxTy),
@@ -105,7 +156,7 @@ export function ASTVisualizer() {
       const containerWidth = svgContainerRef.current.clientWidth;
       const containerHeight = svgContainerRef.current.clientHeight;
 
-      if (containerWidth <=0 || containerHeight <=0) return; // Container not ready
+      if (containerWidth <=0 || containerHeight <=0) return; 
 
       const scaleX = (containerWidth * FIT_PADDING_FACTOR) / svgRenderData.canvasWidth;
       const scaleY = (containerHeight * FIT_PADDING_FACTOR) / svgRenderData.canvasHeight;
@@ -113,21 +164,25 @@ export function ASTVisualizer() {
       let newScale = Math.min(scaleX, scaleY);
       newScale = clampValue(newScale, MIN_SCALE, MAX_SCALE);
 
+      // These translations are to center the scaled content in the container.
+      // These are effectively screen-space translations for the <g> element.
       const newTranslateX = (containerWidth - svgRenderData.canvasWidth * newScale) / 2;
       const newTranslateY = (containerHeight - svgRenderData.canvasHeight * newScale) / 2;
-
+      
+      // No clamping needed for fitView as it's calculating the ideal centered position.
+      // Clamping is for user-driven pan/zoom.
+      // However, if MIN_SCALE makes content larger than view, clamping during pan IS important.
+      // The getClampedTranslations is more for AFTER user interaction.
+      // For fitView, the calculated newTranslateX,Y should be directly used.
       setScale(newScale);
-      // Clamping is not strictly needed for fitView as it should already be centered.
-      // But if MIN_SCALE is hit, content might be larger than view, then clamping could apply.
-      const clamped = getClampedTranslations(newTranslateX, newTranslateY, newScale);
-      setTranslateX(clamped.x);
-      setTranslateY(clamped.y);
+      setTranslateX(newTranslateX);
+      setTranslateY(newTranslateY);
     }
-  }, [svgRenderData, getClampedTranslations]);
+  }, [svgRenderData]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     fitView();
-  }, [currentAST, svgRenderData, fitView]);
+  }, [currentAST, svgRenderData, fitView]); // fitView dependency is fine as it's memoized
 
 
   const handleWheel = (e: WheelEvent<HTMLDivElement>) => {
@@ -142,8 +197,13 @@ export function ASTVisualizer() {
     let newProposedScale = oldScale * (e.deltaY > 0 ? 0.9 : 1.1);
     const newScale = clampValue(newProposedScale, MIN_SCALE, MAX_SCALE);
 
-    const newTx = mouseX - (mouseX - translateX) * (newScale / oldScale);
-    const newTy = mouseY - (mouseY - translateY) * (newScale / oldScale);
+    // Point in content's original coordinate system that was under the mouse
+    const worldMouseX = (mouseX - translateX) / oldScale;
+    const worldMouseY = (mouseY - translateY) / oldScale;
+
+    // New translations to keep worldMouseX,Y at the same screen position (mouseX,mouseY)
+    const newTx = mouseX - worldMouseX * newScale;
+    const newTy = mouseY - worldMouseY * newScale;
     
     const clamped = getClampedTranslations(newTx, newTy, newScale);
 
@@ -155,7 +215,8 @@ export function ASTVisualizer() {
   const handleMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return; 
     setIsPanning(true);
-    setPanStart({ x: e.clientX - translateX, y: e.clientY - translateY }); // Pan start relative to current translation
+    // Pan start relative to current translation and mouse position
+    setPanStart({ x: e.clientX - translateX, y: e.clientY - translateY }); 
     svgContainerRef.current?.style.setProperty('cursor', 'grabbing');
   };
 
@@ -172,8 +233,12 @@ export function ASTVisualizer() {
   };
 
   const handleMouseUpOrLeave = () => {
-    setIsPanning(false);
-    svgContainerRef.current?.style.setProperty('cursor', 'grab');
+    if (isPanning) { // Only reset cursor if panning was active
+        setIsPanning(false);
+        if (svgContainerRef.current) {
+            svgContainerRef.current.style.setProperty('cursor', 'grab');
+        }
+    }
   };
   
   return (
@@ -186,7 +251,7 @@ export function ASTVisualizer() {
       </CardHeader>
       <CardContent 
         ref={svgContainerRef}
-        className="flex-grow overflow-auto cursor-grab relative" 
+        className="flex-grow overflow-auto cursor-grab relative bg-background" 
         onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -218,20 +283,11 @@ export function ASTVisualizer() {
             key={currentAST?.id || 'ast-svg'} 
             width="100%" 
             height="100%"
-            viewBox={`0 0 ${svgRenderData.canvasWidth} ${svgRenderData.canvasHeight}`}
+            // No viewBox here if we are using screen-space transforms in the <g>
             xmlns="http://www.w3.org/2000/svg"
             className={cn("animate-fadeIn", {"border border-dashed border-destructive": !!layoutError})}
-            preserveAspectRatio="xMidYMid meet" 
             style={{ minHeight: '200px' }} 
           >
-            <g transform={`translate(${translateX / scale}, ${translateY / scale}) scale(${1})`}>
-             {/* The main group for SVG content is effectively scaled by viewBox and preserveAspectRatio.
-                 The individual translateX, translateY, and scale are for the *viewport* simulation within the SVG's coordinate system.
-                 Thus, the transform on the <g> element should reflect the "camera" movement.
-                 We apply inverse scale to translateX/Y because they are screen-space translations, 
-                 but the <g> transform is in SVG units before the viewBox scaling.
-                 Alternatively, and more simply, apply scale directly to the group and adjust viewBox:
-            */}
             <g transform={`translate(${translateX}, ${translateY}) scale(${scale})`}>
               {svgRenderData.connectors.map(connector => (
                 <path
@@ -273,7 +329,7 @@ export function ASTVisualizer() {
                       textAnchor="middle"
                       dominantBaseline="central"
                       fill={styles.textFill}
-                      fontSize={NODE_FONT_SIZE} // Font size in SVG units, scales with group
+                      fontSize={NODE_FONT_SIZE} // Font size in content units, scales with group
                       fontFamily="var(--font-geist-mono)"
                     >
                       {textContent}
@@ -282,7 +338,6 @@ export function ASTVisualizer() {
                 );
               })}
             </g>
-           </g>
           </svg>
         )}
          {svgRenderData && svgRenderData.nodes.length === 0 && !isLoading && !displayError && currentAST &&(
@@ -295,3 +350,6 @@ export function ASTVisualizer() {
     </Card>
   );
 }
+
+
+      
