@@ -1,17 +1,20 @@
 
 "use client";
-import React, { useMemo, useState, useRef, WheelEvent, MouseEvent as ReactMouseEvent } from 'react';
+import React, { useMemo, useState, useRef, WheelEvent, MouseEvent as ReactMouseEvent, useCallback } from 'react';
 import { useLambda } from '@/contexts/LambdaContext';
 import { generateAstSvgData, AstSvgRenderData, SvgAstNode, SvgLambdaNode, SvgVariableNode, SvgApplicationNode } from '@/lib/lambda-calculus/ast-svg/ast-svg-loader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlertTriangle, Info } from 'lucide-react';
+import { AlertTriangle, Info, Home } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 
 const NODE_FONT_SIZE = 14;
 const NODE_RX = 6; // Corner radius
-const MIN_SCALE = 0.1;
+const MIN_SCALE = 0.05;
 const MAX_SCALE = 5;
+const FIT_PADDING_FACTOR = 0.9; // For "fit to view", show 90% of content, 5% padding each side
+const MIN_VISIBLE_CONTENT_PERCENTAGE = 0.1; // For panning bounds, ensure at least 10% of content is visible
 
 // Helper function to get node specific styles
 const getNodeStyles = (node: SvgAstNode) => {
@@ -44,6 +47,8 @@ const getNodeStyles = (node: SvgAstNode) => {
   return { fill, stroke, textFill };
 };
 
+const clampValue = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
 export function ASTVisualizer() {
   const { currentAST, isLoading, error: contextError, highlightedRedexId } = useLambda();
 
@@ -68,45 +73,102 @@ export function ASTVisualizer() {
   const layoutError = svgRenderData?.error;
   const displayError = contextError || layoutError;
 
+  const getClampedTranslations = useCallback((targetTx: number, targetTy: number, currentScale: number) => {
+    if (!svgContainerRef.current || !svgRenderData || svgRenderData.canvasWidth <= 0 || svgRenderData.canvasHeight <= 0) {
+      return { x: targetTx, y: targetTy };
+    }
+
+    const containerWidth = svgContainerRef.current.clientWidth;
+    const containerHeight = svgContainerRef.current.clientHeight;
+    const contentScaledWidth = svgRenderData.canvasWidth * currentScale;
+    const contentScaledHeight = svgRenderData.canvasHeight * currentScale;
+
+    // Determine minimum visible part of the content
+    const minVisibleX = Math.max(10, contentScaledWidth * MIN_VISIBLE_CONTENT_PERCENTAGE);
+    const minVisibleY = Math.max(10, contentScaledHeight * MIN_VISIBLE_CONTENT_PERCENTAGE);
+    
+    const minTx = containerWidth - minVisibleX - contentScaledWidth;
+    const maxTx = minVisibleX;
+
+    const minTy = containerHeight - minVisibleY - contentScaledHeight;
+    const maxTy = minVisibleY;
+    
+    return {
+      x: clampValue(targetTx, minTx, maxTx),
+      y: clampValue(targetTy, minTy, maxTy),
+    };
+  }, [svgRenderData]);
+
+
+  const fitView = useCallback(() => {
+    if (svgContainerRef.current && svgRenderData && svgRenderData.canvasWidth > 0 && svgRenderData.canvasHeight > 0) {
+      const containerWidth = svgContainerRef.current.clientWidth;
+      const containerHeight = svgContainerRef.current.clientHeight;
+
+      if (containerWidth <=0 || containerHeight <=0) return; // Container not ready
+
+      const scaleX = (containerWidth * FIT_PADDING_FACTOR) / svgRenderData.canvasWidth;
+      const scaleY = (containerHeight * FIT_PADDING_FACTOR) / svgRenderData.canvasHeight;
+      
+      let newScale = Math.min(scaleX, scaleY);
+      newScale = clampValue(newScale, MIN_SCALE, MAX_SCALE);
+
+      const newTranslateX = (containerWidth - svgRenderData.canvasWidth * newScale) / 2;
+      const newTranslateY = (containerHeight - svgRenderData.canvasHeight * newScale) / 2;
+
+      setScale(newScale);
+      // Clamping is not strictly needed for fitView as it should already be centered.
+      // But if MIN_SCALE is hit, content might be larger than view, then clamping could apply.
+      const clamped = getClampedTranslations(newTranslateX, newTranslateY, newScale);
+      setTranslateX(clamped.x);
+      setTranslateY(clamped.y);
+    }
+  }, [svgRenderData, getClampedTranslations]);
+
+  React.useEffect(() => {
+    fitView();
+  }, [currentAST, svgRenderData, fitView]);
+
+
   const handleWheel = (e: WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
     if (!svgContainerRef.current || !svgRenderData) return;
 
     const rect = svgContainerRef.current.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left; // Mouse X relative to container
-    const mouseY = e.clientY - rect.top;  // Mouse Y relative to container
+    const mouseX = e.clientX - rect.left; 
+    const mouseY = e.clientY - rect.top;  
 
     const oldScale = scale;
-    let newScale = oldScale * (e.deltaY > 0 ? 0.9 : 1.1);
-    newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
+    let newProposedScale = oldScale * (e.deltaY > 0 ? 0.9 : 1.1);
+    const newScale = clampValue(newProposedScale, MIN_SCALE, MAX_SCALE);
 
-
-    // Adjust translateX and translateY to zoom towards the mouse point
-    // The point (mouseX, mouseY) on the screen corresponds to a point in the SVG's coordinate system.
-    // SVG point before zoom: ( (mouseX - translateX) / oldScale, (mouseY - translateY) / oldScale )
-    // We want this SVG point to be at the same screen position (mouseX, mouseY) after zoom.
-    // So, newTranslateX = mouseX - svgPointX * newScale
-    // newTranslateY = mouseY - svgPointY * newScale
+    const newTx = mouseX - (mouseX - translateX) * (newScale / oldScale);
+    const newTy = mouseY - (mouseY - translateY) * (newScale / oldScale);
     
-    setTranslateX(prevTx => mouseX - (mouseX - prevTx) * (newScale / oldScale));
-    setTranslateY(prevTy => mouseY - (mouseY - prevTy) * (newScale / oldScale));
+    const clamped = getClampedTranslations(newTx, newTy, newScale);
+
     setScale(newScale);
+    setTranslateX(clamped.x);
+    setTranslateY(clamped.y);
   };
 
   const handleMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return; // Only pan with left mouse button
+    if (e.button !== 0) return; 
     setIsPanning(true);
-    setPanStart({ x: e.clientX, y: e.clientY });
+    setPanStart({ x: e.clientX - translateX, y: e.clientY - translateY }); // Pan start relative to current translation
     svgContainerRef.current?.style.setProperty('cursor', 'grabbing');
   };
 
   const handleMouseMove = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if (!isPanning) return;
-    const dx = e.clientX - panStart.x;
-    const dy = e.clientY - panStart.y;
-    setTranslateX(prev => prev + dx);
-    setTranslateY(prev => prev + dy);
-    setPanStart({ x: e.clientX, y: e.clientY });
+    if (!isPanning || !svgContainerRef.current || !svgRenderData) return;
+    
+    const newTx = e.clientX - panStart.x;
+    const newTy = e.clientY - panStart.y;
+
+    const clamped = getClampedTranslations(newTx, newTy, scale);
+    
+    setTranslateX(clamped.x);
+    setTranslateY(clamped.y);
   };
 
   const handleMouseUpOrLeave = () => {
@@ -114,37 +176,22 @@ export function ASTVisualizer() {
     svgContainerRef.current?.style.setProperty('cursor', 'grab');
   };
   
-  // Reset transform when AST changes to re-center/fit
-  React.useEffect(() => {
-    setScale(1);
-    // Basic recentering: place top-left of content (considering padding) towards center of view
-    if (svgRenderData && svgContainerRef.current) {
-        const containerWidth = svgContainerRef.current.clientWidth;
-        const containerHeight = svgContainerRef.current.clientHeight;
-        // This is a very rough centering, assumes content starts near 0,0 in its own coordinate system.
-        // A more sophisticated fit would consider svgRenderData.canvasWidth/Height
-        setTranslateX((containerWidth - svgRenderData.canvasWidth) / 2);
-        setTranslateY(50); // Small offset from top
-    } else {
-        setTranslateX(0);
-        setTranslateY(0);
-    }
-  }, [currentAST, svgRenderData]);
-
-
   return (
     <Card className="h-full flex flex-col">
-      <CardHeader>
-        <CardTitle className="text-2xl font-semibold">Abstract Syntax Tree</CardTitle>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="text-xl font-semibold">Abstract Syntax Tree</CardTitle>
+        <Button variant="ghost" size="icon" onClick={fitView} title="Reset View">
+          <Home className="h-5 w-5" />
+        </Button>
       </CardHeader>
       <CardContent 
         ref={svgContainerRef}
-        className="flex-grow overflow-auto cursor-grab" // overflow-auto still useful for overall scroll
+        className="flex-grow overflow-auto cursor-grab relative" 
         onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUpOrLeave}
-        onMouseLeave={handleMouseUpOrLeave} // Stop panning if mouse leaves container
+        onMouseLeave={handleMouseUpOrLeave} 
       >
         {isLoading && !svgRenderData && (
           <div className="space-y-4 p-2">
@@ -168,27 +215,33 @@ export function ASTVisualizer() {
         )}
         {svgRenderData && svgRenderData.nodes.length > 0 && !displayError && (
           <svg
-            key={currentAST?.id || 'ast-svg'} // Key to help with re-renders if needed
+            key={currentAST?.id || 'ast-svg'} 
             width="100%" 
             height="100%"
             viewBox={`0 0 ${svgRenderData.canvasWidth} ${svgRenderData.canvasHeight}`}
             xmlns="http://www.w3.org/2000/svg"
             className={cn("animate-fadeIn", {"border border-dashed border-destructive": !!layoutError})}
-            preserveAspectRatio="xMidYMid meet" // Keeps aspect ratio, fits within bounds
+            preserveAspectRatio="xMidYMid meet" 
             style={{ minHeight: '200px' }} 
           >
+            <g transform={`translate(${translateX / scale}, ${translateY / scale}) scale(${1})`}>
+             {/* The main group for SVG content is effectively scaled by viewBox and preserveAspectRatio.
+                 The individual translateX, translateY, and scale are for the *viewport* simulation within the SVG's coordinate system.
+                 Thus, the transform on the <g> element should reflect the "camera" movement.
+                 We apply inverse scale to translateX/Y because they are screen-space translations, 
+                 but the <g> transform is in SVG units before the viewBox scaling.
+                 Alternatively, and more simply, apply scale directly to the group and adjust viewBox:
+            */}
             <g transform={`translate(${translateX}, ${translateY}) scale(${scale})`}>
-              {/* Render Connectors First */}
               {svgRenderData.connectors.map(connector => (
                 <path
                   key={connector.id}
                   d={connector.pathD}
                   stroke={connector.isHighlighted ? 'hsl(var(--ast-highlight-bg))' : 'hsl(var(--foreground)/0.5)'}
-                  strokeWidth={connector.isHighlighted ? (2/scale) : (1.5/scale)} // Scale stroke width
+                  strokeWidth={connector.isHighlighted ? (2/scale) : (1.5/scale)} 
                   fill="none"
                 />
               ))}
-              {/* Render Nodes */}
               {svgRenderData.nodes.map(node => {
                 const styles = getNodeStyles(node);
                 let textContent = '';
@@ -212,7 +265,7 @@ export function ASTVisualizer() {
                       ry={NODE_RX}
                       fill={styles.fill}
                       stroke={styles.stroke}
-                      strokeWidth={node.isHighlighted ? (2/scale) : (1.5/scale)} // Scale stroke width
+                      strokeWidth={node.isHighlighted ? (2/scale) : (1.5/scale)} 
                     />
                     <text
                       x={node.width / 2}
@@ -220,7 +273,7 @@ export function ASTVisualizer() {
                       textAnchor="middle"
                       dominantBaseline="central"
                       fill={styles.textFill}
-                      fontSize={NODE_FONT_SIZE / Math.sqrt(scale)} // Adjust font size with scale
+                      fontSize={NODE_FONT_SIZE} // Font size in SVG units, scales with group
                       fontFamily="var(--font-geist-mono)"
                     >
                       {textContent}
@@ -229,6 +282,7 @@ export function ASTVisualizer() {
                 );
               })}
             </g>
+           </g>
           </svg>
         )}
          {svgRenderData && svgRenderData.nodes.length === 0 && !isLoading && !displayError && currentAST &&(
@@ -241,4 +295,3 @@ export function ASTVisualizer() {
     </Card>
   );
 }
-
