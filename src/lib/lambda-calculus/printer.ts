@@ -33,13 +33,6 @@ function _printRecursive(
   context: 'func' | 'arg' | 'body' | 'top',
   state: PrintState // Passed effectively by reference
 ): string {
-  // If the node is tagged as a specific Church numeral (e.g., _7, _10), print that name directly.
-  // This bypasses canonical renaming for its internal structure, treating _N as an atom.
-  if (node.sourcePrimitiveName && /^_\d+$/.test(node.sourcePrimitiveName)) {
-    const numeralName = node.sourcePrimitiveName;
-    return needsParentheses(node, context) ? `(${numeralName})` : numeralName;
-  }
-
   let result = '';
   switch (node.type) {
     case 'variable':
@@ -92,5 +85,3 @@ export function print(node: ASTNode, context: 'func' | 'arg' | 'body' | 'top' = 
   };
   return _printRecursive(node, context, initialState);
 }
-
-    
