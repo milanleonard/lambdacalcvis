@@ -37,9 +37,9 @@ interface LambdaContextType extends LambdaState {
 
 const LambdaContext = createContext<LambdaContextType | undefined>(undefined);
 
-const INITIAL_EXPRESSION = "(λx.λy.x y) (λz.z)";
+const INITIAL_EXPRESSION = "(_PLUS) (_5) (_3)";
 const MAX_FULL_REDUCTION_STEPS = 5000;
-const PARSE_DEBOUNCE_DELAY = 300; // Changed from 1500 to 300
+const PARSE_DEBOUNCE_DELAY = 300; 
 
 export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, setState] = useState<LambdaState>({
@@ -107,7 +107,6 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     } catch (e: any) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       // Do not toast here for parse errors, as they are displayed in the UI
-      // toast({ title: "Parse Error", description: errorMessage, variant: "destructive" });
       setState(prevState => ({
         ...prevState,
         currentAST: null,
@@ -154,10 +153,8 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
     
     // For non-empty strings, initiate debounce.
-    // We don't set isLoading here; parseAndSetAST handles it.
-    // The error from a previous parse attempt remains visible until the new debounced parse attempt starts.
     debounceTimerRef.current = setTimeout(() => {
-      if (typeof currentRawExpr === 'string') { // Should always be string here due to above check
+      if (typeof currentRawExpr === 'string') { 
         parseAndSetAST(currentRawExpr, currentCustomExprs);
       }
     }, PARSE_DEBOUNCE_DELAY);
@@ -172,8 +169,6 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const setRawExpression = (value: string | ((prevState: string) => string)) => {
     const newRawExpression = typeof value === 'function' ? value(state.rawExpression) : value;
-    // Clear fullyReducedString immediately when rawExpression changes.
-    // Prettified string will be updated by the debounced parse.
     setState(prevState => ({ ...prevState, rawExpression: newRawExpression, fullyReducedString: "" }));
   };
 
@@ -262,9 +257,6 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const resetState = (initialExpression: string = INITIAL_EXPRESSION) => {
-    // Setting rawExpression will trigger the debounced parse effect.
-    // fullyReducedString is cleared by setRawExpression.
-    // prettifiedExpressionString will be updated by the debounced parse.
     setRawExpression(initialExpression);
   };
 
@@ -295,7 +287,6 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
     try {
       localStorage.setItem(CUSTOM_EXPRESSIONS_STORAGE_KEY, JSON.stringify(updatedCustomExpressions));
-      // This setState will trigger the useEffect for parsing, which is debounced.
       setState(prevState => ({ ...prevState, customExpressions: updatedCustomExpressions }));
       toast({ title: "Success", description: `Custom term "${name}" saved!`, variant: "default" });
       return true;
@@ -310,7 +301,6 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     const updatedCustomExpressions = state.customExpressions.filter(expr => expr.name !== name);
     try {
       localStorage.setItem(CUSTOM_EXPRESSIONS_STORAGE_KEY, JSON.stringify(updatedCustomExpressions));
-      // This setState will trigger the useEffect for parsing, which is debounced.
       setState(prevState => ({
         ...prevState,
         customExpressions: updatedCustomExpressions,
@@ -337,3 +327,4 @@ export const useLambda = (): LambdaContextType => {
   }
   return context;
 };
+

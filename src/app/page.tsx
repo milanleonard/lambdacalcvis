@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 type VisualizationStyle = "ast" | "tromp";
 
 export default function HomePage() {
-  const [activeTab, setActiveTab] = useState<VisualizationStyle>("ast");
+  const [activeTab, setActiveTab] = useState<VisualizationStyle>("tromp");
 
   return (
     <LambdaProvider>
