@@ -19,16 +19,16 @@ export default function HomePage() {
         <div className="w-full md:w-2/5 lg:w-1/3 h-full max-h-full overflow-y-auto">
           <ExpressionInputCard />
         </div>
-        <div className="w-full md:w-3/5 lg:w-2/3 h-full max-h-full flex flex-col"> {/* Removed overflow-hidden here to allow children to manage their scroll */}
+        <div className="w-full md:w-3/5 lg:w-2/3 h-full max-h-full flex flex-col">
           <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as VisualizationStyle)} className="flex flex-col h-full">
             <TabsList className="mb-2 shrink-0">
-              <TabsTrigger value="ast">AST Tree</TabsTrigger>
+              <TabsTrigger value="ast">Abstract Syntax Tree</TabsTrigger>
               <TabsTrigger value="tromp">Tromp Diagram</TabsTrigger>
             </TabsList>
-            <TabsContent value="ast" className="flex-grow h-[calc(100%-2.5rem)]"> {/* Removed overflow-hidden */}
+            <TabsContent value="ast" className="flex-grow h-[calc(100%-2.5rem)]">
               <ASTVisualizer />
             </TabsContent>
-            <TabsContent value="tromp" className="flex-grow h-[calc(100%-2.5rem)]"> {/* Removed overflow-hidden */}
+            <TabsContent value="tromp" className="flex-grow h-[calc(100%-2.5rem)]">
               <TrompDiagramVisualizer />
             </TabsContent>
           </Tabs>
@@ -37,3 +37,4 @@ export default function HomePage() {
     </LambdaProvider>
   );
 }
+
