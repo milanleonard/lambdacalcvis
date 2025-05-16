@@ -19,7 +19,7 @@ export function ExpressionInputCard() {
     performReductionStep,
     reduceToNormalForm,
     reducedExpressionString,
-    prettifiedExpressionString, // Get the new prettified string
+    prettifiedExpressionString,
     fullyReducedString,
     isLoading,
     error,
@@ -81,6 +81,33 @@ export function ExpressionInputCard() {
           <Label className="text-base">Predefined & Custom Terms (Click to insert)</Label>
           <NamedExpressionsPanel onInsert={handleInsertNamedExpression} />
         </div>
+        
+        <div className="space-y-2 mt-4">
+          <Label htmlFor="reduced-expression" className="text-base">Current Form (Step-by-Step)</Label>
+          <ScrollArea className="border rounded-md bg-input p-1 min-h-[60px] max-h-[120px]">
+            <pre id="reduced-expression" className="p-3 font-mono text-sm text-foreground whitespace-pre-wrap break-all">
+              {isLoading && !reducedExpressionString && !fullyReducedString ? "Processing..." : reducedExpressionString}
+            </pre>
+          </ScrollArea>
+        </div>
+
+        <div className="space-y-2 mt-2">
+          <Label htmlFor="prettified-expression" className="text-base">Prettified Form</Label>
+          <ScrollArea className="border rounded-md bg-input p-1 min-h-[60px] max-h-[120px]">
+            <pre id="prettified-expression" className="p-3 font-mono text-sm text-foreground whitespace-pre-wrap break-all">
+              {prettifiedExpressionString || (isLoading && !error ? "Processing..." : (error ? "Error in expression." : "Enter an expression."))}
+            </pre>
+          </ScrollArea>
+        </div>
+
+        <div className="space-y-2 mt-auto pt-2"> 
+          <Label htmlFor="fully-reduced-expression" className="text-base">Normal Form (Full Reduction)</Label>
+          <ScrollArea className="border rounded-md bg-muted p-1 min-h-[60px] max-h-[120px]">
+            <pre id="fully-reduced-expression" className="p-3 font-mono text-sm text-muted-foreground whitespace-pre-wrap break-all">
+              {isLoading && fullyReducedString === "Reducing..." ? "Reducing..." : (fullyReducedString || "Not yet fully reduced.")}
+            </pre>
+          </ScrollArea>
+        </div>
 
         <Separator className="my-4" />
 
@@ -108,34 +135,7 @@ export function ExpressionInputCard() {
             </Button>
           </div>
         </div>
-        
-        <div className="space-y-2 mt-4">
-          <Label htmlFor="reduced-expression" className="text-base">Current Form (Step-by-Step)</Label>
-          <ScrollArea className="border rounded-md bg-input p-1 min-h-[60px] max-h-[120px]">
-            <pre id="reduced-expression" className="p-3 font-mono text-sm text-foreground whitespace-pre-wrap break-all">
-              {isLoading && !reducedExpressionString && !fullyReducedString ? "Processing..." : reducedExpressionString}
-            </pre>
-          </ScrollArea>
-        </div>
 
-        {/* New Prettified Form Display */}
-        <div className="space-y-2 mt-2">
-          <Label htmlFor="prettified-expression" className="text-base">Prettified Form</Label>
-          <ScrollArea className="border rounded-md bg-input p-1 min-h-[60px] max-h-[120px]">
-            <pre id="prettified-expression" className="p-3 font-mono text-sm text-foreground whitespace-pre-wrap break-all">
-              {prettifiedExpressionString || (isLoading && !error ? "Processing..." : (error ? "Error in expression." : "Enter an expression."))}
-            </pre>
-          </ScrollArea>
-        </div>
-
-        <div className="space-y-2 mt-auto"> 
-          <Label htmlFor="fully-reduced-expression" className="text-base">Normal Form (Full Reduction)</Label>
-          <ScrollArea className="border rounded-md bg-muted p-1 min-h-[60px] max-h-[120px]">
-            <pre id="fully-reduced-expression" className="p-3 font-mono text-sm text-muted-foreground whitespace-pre-wrap break-all">
-              {isLoading && fullyReducedString === "Reducing..." ? "Reducing..." : (fullyReducedString || "Not yet fully reduced.")}
-            </pre>
-          </ScrollArea>
-        </div>
       </CardContent>
       <CardFooter className="flex flex-col sm:flex-row justify-between items-center gap-2 pt-4 mt-auto">
         <Button onClick={() => resetState()} variant="outline" className="w-full sm:w-auto" disabled={isLoading}>
@@ -153,5 +153,3 @@ export function ExpressionInputCard() {
     </Card>
   );
 }
-
-    

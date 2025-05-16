@@ -1,3 +1,4 @@
+
 "use client";
 import { useLambda } from '@/contexts/LambdaContext';
 import { ASTNodeComponent } from './ASTNodeComponent';
@@ -14,7 +15,7 @@ export function ASTVisualizer() {
       <CardHeader>
         <CardTitle className="text-2xl font-semibold">Abstract Syntax Tree</CardTitle>
       </CardHeader>
-      <CardContent className="flex-grow overflow-hidden">
+      <CardContent className="flex-grow"> {/* Removed overflow-hidden */}
         <ScrollArea className="h-full p-1">
           {isLoading && !currentAST && (
             <div className="space-y-4">
