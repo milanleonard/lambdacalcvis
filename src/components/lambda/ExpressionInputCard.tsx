@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { Play, RotateCcw, Sigma, Save, Zap } from 'lucide-react'; // Import Zap for "Reduce to Normal Form"
+import { Play, RotateCcw, Sigma, Save, Zap } from 'lucide-react'; 
 import { ScrollArea } from '../ui/scroll-area';
 import { NamedExpressionsPanel } from './NamedExpressionsPanel';
 import { Separator } from '../ui/separator';
@@ -19,6 +19,7 @@ export function ExpressionInputCard() {
     performReductionStep,
     reduceToNormalForm,
     reducedExpressionString,
+    prettifiedExpressionString, // Get the new prettified string
     fullyReducedString,
     isLoading,
     error,
@@ -62,7 +63,7 @@ export function ExpressionInputCard() {
         </div>
         <CardDescription>Enter a Lambda Calculus expression (e.g., `L`, `\`, `_ID`, `_TRUE`, `_2`) and evaluate it.</CardDescription>
       </CardHeader>
-      <CardContent className="flex-grow space-y-4 flex flex-col overflow-y-auto"> {/* Added overflow-y-auto here */}
+      <CardContent className="flex-grow space-y-4 flex flex-col overflow-y-auto">
         <div className="space-y-2">
           <Label htmlFor="lambda-expression" className="text-base">Expression</Label>
           <Textarea
@@ -117,7 +118,17 @@ export function ExpressionInputCard() {
           </ScrollArea>
         </div>
 
-        <div className="space-y-2 mt-auto"> {/* Pushes this to bottom if space allows */}
+        {/* New Prettified Form Display */}
+        <div className="space-y-2 mt-2">
+          <Label htmlFor="prettified-expression" className="text-base">Prettified Form</Label>
+          <ScrollArea className="border rounded-md bg-input p-1 min-h-[60px] max-h-[120px]">
+            <pre id="prettified-expression" className="p-3 font-mono text-sm text-foreground whitespace-pre-wrap break-all">
+              {prettifiedExpressionString || (isLoading && !error ? "Processing..." : (error ? "Error in expression." : "Enter an expression."))}
+            </pre>
+          </ScrollArea>
+        </div>
+
+        <div className="space-y-2 mt-auto"> 
           <Label htmlFor="fully-reduced-expression" className="text-base">Normal Form (Full Reduction)</Label>
           <ScrollArea className="border rounded-md bg-muted p-1 min-h-[60px] max-h-[120px]">
             <pre id="fully-reduced-expression" className="p-3 font-mono text-sm text-muted-foreground whitespace-pre-wrap break-all">
@@ -142,3 +153,5 @@ export function ExpressionInputCard() {
     </Card>
   );
 }
+
+    

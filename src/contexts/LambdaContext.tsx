@@ -6,6 +6,7 @@ import { predefinedExpressions } from '@/lib/lambda-calculus/predefined';
 import { parse } from '@/lib/lambda-calculus/parser';
 import { print } from '@/lib/lambda-calculus/printer';
 import { reduceStep, cloneAST } from '@/lib/lambda-calculus/reducer';
+import { prettifyAST } from '@/lib/lambda-calculus/prettifier';
 import React, { createContext, useContext, useState, ReactNode, useCallback, useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
 
@@ -18,7 +19,8 @@ interface LambdaState {
   error: string | null;
   isLoading: boolean;
   reducedExpressionString: string;
-  fullyReducedString: string; // For the result of reduceToNormalForm
+  fullyReducedString: string; 
+  prettifiedExpressionString: string; // New state for prettified output
   isReducible: boolean;
   highlightedRedexId?: string;
   customExpressions: NamedExpression[];
@@ -47,6 +49,7 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     isLoading: false,
     reducedExpressionString: "",
     fullyReducedString: "",
+    prettifiedExpressionString: "", // Initialize new state
     isReducible: false,
     customExpressions: [],
   });
@@ -71,13 +74,22 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   }, [toast]);
 
+  const updatePrettifiedString = useCallback((ast: ASTNode | null, customExprs: NamedExpression[]) => {
+    if (ast) {
+      const prettified = prettifyAST(ast, customExprs, predefinedExpressions);
+      setState(prevState => ({ ...prevState, prettifiedExpressionString: prettified }));
+    } else {
+      setState(prevState => ({ ...prevState, prettifiedExpressionString: "" }));
+    }
+  }, []);
+
 
   const parseAndSetAST = useCallback((expression: string, currentCustomExpressions: NamedExpression[]) => {
-    setState(prevState => ({ ...prevState, isLoading: true, error: null, fullyReducedString: "" })); // Clear fullyReducedString on new parse
+    setState(prevState => ({ ...prevState, isLoading: true, error: null, fullyReducedString: "" }));
     try {
       const ast = parse(expression, currentCustomExpressions);
       const printedAst = print(ast);
-      const checkReduce = reduceStep(ast); // Performs initial redex check
+      const checkReduce = reduceStep(ast); 
       setState(prevState => ({
         ...prevState,
         currentAST: ast,
@@ -88,6 +100,7 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         isReducible: checkReduce.changed,
         highlightedRedexId: checkReduce.redexId,
       }));
+      updatePrettifiedString(ast, currentCustomExpressions);
     } catch (e: any) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       toast({ title: "Parse Error", description: errorMessage, variant: "destructive" });
@@ -101,8 +114,9 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         isReducible: false,
         highlightedRedexId: undefined,
       }));
+      updatePrettifiedString(null, currentCustomExpressions);
     }
-  }, [toast]);
+  }, [toast, updatePrettifiedString]);
 
   useEffect(() => {
     if (typeof state.rawExpression === 'string') {
@@ -116,13 +130,14 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         reducedExpressionString: "Error",
         isReducible: false,
       }));
+      updatePrettifiedString(null, state.customExpressions);
     }
-  }, [state.rawExpression, state.customExpressions, parseAndSetAST]);
+  }, [state.rawExpression, state.customExpressions, parseAndSetAST, updatePrettifiedString]);
 
 
   const setRawExpression = (value: string | ((prevState: string) => string)) => {
     const newRawExpression = typeof value === 'function' ? value(state.rawExpression) : value;
-    setState(prevState => ({ ...prevState, rawExpression: newRawExpression, fullyReducedString: "" })); // Clear fullyReducedString
+    setState(prevState => ({ ...prevState, rawExpression: newRawExpression, fullyReducedString: "", prettifiedExpressionString: "" })); 
   };
 
   const performReductionStep = () => {
@@ -148,17 +163,20 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           isReducible: checkNextReduce.changed,
           highlightedRedexId: redexId, 
         }));
+        updatePrettifiedString(newAst, state.customExpressions);
         setTimeout(() => {
             setState(s => ({...s, highlightedRedexId: checkNextReduce.changed ? checkNextReduce.redexId : undefined}))
-        }, 500);
+        }, 500); // Delay highlight update for next redex
       } else {
         toast({ title: "Normal Form", description: "Expression is in normal form.", variant: "default" });
         setState(prevState => ({ ...prevState, isLoading: false, isReducible: false, highlightedRedexId: undefined }));
+        updatePrettifiedString(state.currentAST, state.customExpressions); // Update prettified for final form
       }
     } catch (e: any) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       toast({ title: "Reduction Error", description: errorMessage, variant: "destructive" });
       setState(prevState => ({ ...prevState, error: errorMessage, isLoading: false, isReducible: false }));
+       updatePrettifiedString(state.currentAST, state.customExpressions); // Still try to prettify current state
     }
   };
 
@@ -170,15 +188,17 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
     setState(prevState => ({ ...prevState, isLoading: true, fullyReducedString: "Reducing..." }));
   
-    let astForFullReduction = cloneAST(state.currentAST); // Work on a copy for full reduction
+    let astForFullReduction = cloneAST(state.currentAST); 
     let steps = 0;
     let reducibleCurrent = true;
+    let tempAstHistoryForFullReduction: ASTNode[] = [astForFullReduction];
   
     try {
       while (reducibleCurrent && steps < MAX_FULL_REDUCTION_STEPS) {
-        const { newAst, changed } = reduceStep(astForFullReduction); // Don't need redexId for full reduction display logic
+        const { newAst, changed } = reduceStep(astForFullReduction); 
         if (changed) {
           astForFullReduction = newAst;
+          tempAstHistoryForFullReduction.push(astForFullReduction);
           steps++;
         } else {
           reducibleCurrent = false;
@@ -190,9 +210,17 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         ...prevState,
         isLoading: false,
         fullyReducedString: finalString,
-        // Do not update currentAST/isReducible here, as this is a separate display.
-        // The main AST and step-by-step reduction remain independent.
+        // Optionally, update currentAST to the fully reduced form, if desired.
+        // For now, full reduction result is separate.
+        // currentAST: astForFullReduction,
+        // reducedExpressionString: finalString,
+        // astHistory: [...prevState.astHistory, ...tempAstHistoryForFullReduction.slice(1)], // Append steps
+        // isReducible: false,
+        // highlightedRedexId: undefined,
       }));
+      // Prettify the final normal form
+      // updatePrettifiedString(astForFullReduction, state.customExpressions); 
+      // ^ This would update the main prettified display. Might be confusing if main AST isn't updated.
   
       if (steps === MAX_FULL_REDUCTION_STEPS && reducibleCurrent) {
         toast({ title: "Max Steps Reached", description: `Reduction stopped after ${MAX_FULL_REDUCTION_STEPS} steps. Result may not be normal form.`, variant: "destructive" });
@@ -207,8 +235,9 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
   
   const resetState = (initialExpression: string = INITIAL_EXPRESSION) => {
-    setRawExpression(initialExpression); // This will trigger parseAndSetAST via useEffect
-    setState(prevState => ({ ...prevState, fullyReducedString: ""})); // Explicitly clear fullyReducedString too
+    setRawExpression(initialExpression); 
+    setState(prevState => ({ ...prevState, fullyReducedString: ""})); 
+    // parseAndSetAST (called via useEffect on rawExpression change) will handle prettified string reset.
   };
 
   const addCustomExpression = (name: string, lambda: string): boolean => {
@@ -238,8 +267,9 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     
     try {
       localStorage.setItem(CUSTOM_EXPRESSIONS_STORAGE_KEY, JSON.stringify(updatedCustomExpressions));
-      // The setState below will trigger the useEffect that calls parseAndSetAST because state.customExpressions changes.
       setState(prevState => ({ ...prevState, customExpressions: updatedCustomExpressions }));
+      // parseAndSetAST will be re-triggered by useEffect due to customExpressions change,
+      // which will also update the prettified string.
       toast({ title: "Success", description: `Custom term "${name}" saved!`, variant: "default" });
       return true;
     } catch (error) {
@@ -253,11 +283,12 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     const updatedCustomExpressions = state.customExpressions.filter(expr => expr.name !== name);
     try {
       localStorage.setItem(CUSTOM_EXPRESSIONS_STORAGE_KEY, JSON.stringify(updatedCustomExpressions));
-      // This setState will trigger re-parse via useEffect due to customExpressions dependency.
       setState(prevState => ({
         ...prevState,
         customExpressions: updatedCustomExpressions,
       }));
+      // parseAndSetAST will be re-triggered by useEffect due to customExpressions change,
+      // which will also update the prettified string.
       toast({ title: "Success", description: `Custom term "${name}" removed.`, variant: "default" });
     } catch (error) {
       console.error("Failed to remove custom expression from localStorage:", error);
@@ -280,3 +311,5 @@ export const useLambda = (): LambdaContextType => {
   }
   return context;
 };
+
+    
