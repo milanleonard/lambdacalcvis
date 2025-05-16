@@ -12,6 +12,10 @@ import { useToast } from "@/hooks/use-toast";
 
 const CUSTOM_EXPRESSIONS_STORAGE_KEY = 'lambdaVisCustomExpressions';
 
+const INITIAL_EXPRESSION = "(_PLUS) (_5) (_3)";
+const MAX_FULL_REDUCTION_STEPS = 5000;
+const PARSE_DEBOUNCE_DELAY = 300;
+
 interface LambdaState {
   rawExpression: string;
   currentAST: ASTNode | null;
@@ -36,10 +40,6 @@ interface LambdaContextType extends LambdaState {
 }
 
 const LambdaContext = createContext<LambdaContextType | undefined>(undefined);
-
-const INITIAL_EXPRESSION = "(_PLUS) (_5) (_3)";
-const MAX_FULL_REDUCTION_STEPS = 5000;
-const PARSE_DEBOUNCE_DELAY = 300; 
 
 export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, setState] = useState<LambdaState>({
@@ -106,7 +106,6 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       updatePrettifiedString(ast, currentCustomExpressions);
     } catch (e: any) {
       const errorMessage = e instanceof Error ? e.message : String(e);
-      // Do not toast here for parse errors, as they are displayed in the UI
       setState(prevState => ({
         ...prevState,
         currentAST: null,
@@ -130,10 +129,9 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
 
     if (typeof currentRawExpr === 'string' && currentRawExpr.trim() === "") {
-      // Immediate clear for empty input
       setState(prevState => {
         if (prevState.currentAST === null && prevState.error === null && !prevState.isLoading && prevState.reducedExpressionString === "") {
-          return prevState; // Avoid unnecessary state update if already cleared
+          return prevState;
         }
         return {
           ...prevState,
@@ -149,12 +147,11 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         };
       });
       updatePrettifiedString(null, currentCustomExprs);
-      return; // No debounce needed for empty string
+      return;
     }
-    
-    // For non-empty strings, initiate debounce.
+
     debounceTimerRef.current = setTimeout(() => {
-      if (typeof currentRawExpr === 'string') { 
+      if (typeof currentRawExpr === 'string') {
         parseAndSetAST(currentRawExpr, currentCustomExprs);
       }
     }, PARSE_DEBOUNCE_DELAY);
@@ -180,11 +177,11 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setState(prevState => ({ ...prevState, isLoading: true, fullyReducedString: "" }));
     try {
       const astToReduce = state.currentAST;
-      const { newAst, changed, redexId } = reduceStep(astToReduce);
+      const { newAst, changed } = reduceStep(astToReduce); // redexId from reduceStep(astToReduce) is not used here directly for highlighting newAst
 
       if (changed) {
         const printedNewAst = print(newAst);
-        const checkNextReduce = reduceStep(newAst);
+        const checkNextReduceOnNewAst = reduceStep(newAst); // Analyze the new AST for its own redex
         setState(prevState => ({
           ...prevState,
           currentAST: newAst,
@@ -192,13 +189,10 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           reducedExpressionString: printedNewAst,
           isLoading: false,
           error: null,
-          isReducible: checkNextReduce.changed,
-          highlightedRedexId: redexId,
+          isReducible: checkNextReduceOnNewAst.changed,
+          highlightedRedexId: checkNextReduceOnNewAst.redexId, // Set highlight for the NEW AST
         }));
         updatePrettifiedString(newAst, state.customExpressions);
-        setTimeout(() => {
-            setState(s => ({...s, highlightedRedexId: checkNextReduce.changed ? checkNextReduce.redexId : undefined}))
-        }, 500);
       } else {
         toast({ title: "Normal Form", description: "Expression is in normal form.", variant: "default" });
         setState(prevState => ({ ...prevState, isLoading: false, isReducible: false, highlightedRedexId: undefined }));
@@ -207,7 +201,7 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     } catch (e: any) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       toast({ title: "Reduction Error", description: errorMessage, variant: "destructive" });
-      setState(prevState => ({ ...prevState, error: errorMessage, isLoading: false, isReducible: false }));
+      setState(prevState => ({ ...prevState, error: errorMessage, isLoading: false, isReducible: false, highlightedRedexId: undefined }));
        updatePrettifiedString(state.currentAST, state.customExpressions);
     }
   };
