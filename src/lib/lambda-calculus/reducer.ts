@@ -1,11 +1,10 @@
 
 import type { ASTNode, Variable, Lambda, Application, ASTNodeId } from './types';
 import { generateNodeId } from './types';
-import { print } from './printer'; // For debugging
 
 // Deep copy AST, generating new IDs and preserving sourcePrimitiveName
 export function cloneAST(node: ASTNode): ASTNode {
-  const newNode = { ...node, id: generateNodeId() } as ASTNode; // Shallow copy base, new ID, copy sourcePrimitiveName
+  const newNode = { ...node, id: generateNodeId() } as ASTNode;
   if (newNode.type === 'lambda') {
     newNode.body = cloneAST(newNode.body);
   } else if (newNode.type === 'application') {
@@ -34,7 +33,7 @@ function getFreeVariables(node: ASTNode, bound: Set<string> = new Set()): Set<st
 // Alpha conversion: rename bound variable `param` to `newName` in `lambdaNode.body`
 function alphaConvert(lambdaNode: Lambda, newParamName: string): Lambda {
   function substituteInBody(node: ASTNode, oldName: string, newName: string): ASTNode {
-    const clonedNode = cloneAST(node); // Clone first to get new ID and preserve original tags
+    const clonedNode = cloneAST(node);
     switch (clonedNode.type) {
       case 'variable':
         if (clonedNode.name === oldName) {
@@ -42,18 +41,9 @@ function alphaConvert(lambdaNode: Lambda, newParamName: string): Lambda {
         }
         return clonedNode;
       case 'lambda':
-        // If the lambda's parameter is the one we're renaming, or would capture the new name,
-        // it means we're inside a scope that shadows or conflicts.
-        // The substitution should not proceed into this lambda's body for `oldName` if `clonedNode.param === oldName`.
-        // If `clonedNode.param === newName`, it means this lambda would capture the `newName`,
-        // which implies an error in how `generateFreshVar` was called or a very tricky situation.
-        // For alpha conversion, we are renaming `lambdaNode.param`.
-        // The `substituteInBody` is to update occurrences of `lambdaNode.param` *within its body*.
-        if (clonedNode.param === oldName) { // This lambda shadows the var we are renaming, so stop here for this var.
-            return clonedNode; 
+        if (clonedNode.param === oldName) {
+            return clonedNode;
         }
-        // If this lambda's param is `newName`, it would capture. This shouldn't happen if `newParamName` was chosen well.
-        // Proceed to substitute in the body.
         clonedNode.body = substituteInBody(clonedNode.body, oldName, newName);
         return clonedNode;
       case 'application':
@@ -63,9 +53,9 @@ function alphaConvert(lambdaNode: Lambda, newParamName: string): Lambda {
     }
   }
   return {
-    ...lambdaNode, // Copy type, original param (to be replaced), original body (to be transformed)
+    ...lambdaNode,
     id: generateNodeId(),
-    sourcePrimitiveName: lambdaNode.sourcePrimitiveName, // Preserve tag
+    sourcePrimitiveName: lambdaNode.sourcePrimitiveName,
     param: newParamName,
     body: substituteInBody(lambdaNode.body, lambdaNode.param, newParamName),
   };
@@ -76,8 +66,8 @@ let freshVarCounter = 0;
 function generateFreshVar(base: string, avoid: Set<string>): string {
   let newName = `${base}${freshVarCounter++}`;
   while (avoid.has(newName)) {
-    newName = `${base}${freshVarCounter++}${freshVarCounter > 100 ? 'x' : ''}`; // Add 'x' if too many attempts
-    if (freshVarCounter > 200) { // Emergency break for extreme cases
+    newName = `${base}${freshVarCounter++}${freshVarCounter > 100 ? 'x' : ''}`;
+    if (freshVarCounter > 200) {
         console.warn("High freshVarCounter, potential issue in var generation:", base, avoid);
         return `__fresh_${Date.now()}`;
     }
@@ -89,44 +79,30 @@ function generateFreshVar(base: string, avoid: Set<string>): string {
 function substitute(node: ASTNode, varName: string, replacement: ASTNode, boundInReplacementContext: Set<string> = new Set()): ASTNode {
   switch (node.type) {
     case 'variable':
-      // If it's the variable we're looking for, return a clone of the replacement.
-      // The replacement AST carries its own `sourcePrimitiveName` if it came from a primitive.
       return node.name === varName ? cloneAST(replacement) : cloneAST(node);
     case 'lambda':
-      // If the lambda's parameter is the same as the variable we're substituting,
-      // it shadows `varName`, so no substitution in the body.
       if (node.param === varName) {
         return cloneAST(node);
       }
-      // Capture avoidance:
-      // If the lambda's parameter `node.param` is free in `replacement`
-      // AND `varName` is free in `node.body` (implicit: we are substituting into `node.body`)
-      // then `node.param` would capture free variables in `replacement`.
       const fvReplacement = getFreeVariables(replacement, boundInReplacementContext);
       if (fvReplacement.has(node.param)) {
-        // Need to alpha-convert `node` (the lambda).
         const combinedAvoidSet = new Set([...getFreeVariables(node.body), ...fvReplacement, varName]);
         const freshName = generateFreshVar(node.param, combinedAvoidSet);
-        const alphaConvertedLambda = alphaConvert(node, freshName); 
-        // Now substitute into the body of the alpha-converted lambda.
+        const alphaConvertedLambda = alphaConvert(node, freshName);
         return {
-          ...alphaConvertedLambda, // id, new param, sourcePrimitiveName are set by alphaConvert
+          ...alphaConvertedLambda,
           body: substitute(alphaConvertedLambda.body, varName, replacement, boundInReplacementContext),
         };
       }
-      // No capture, proceed to substitute in the body.
-      // The new lambda node keeps its original `sourcePrimitiveName`.
       const newBoundInContext = new Set(boundInReplacementContext);
       newBoundInContext.add(node.param);
-      return { 
-          ...cloneAST(node), // Clone to get new ID, preserves sourcePrimitiveName from original lambda
-          body: substitute(node.body, varName, replacement, newBoundInContext) 
+      return {
+          ...cloneAST(node),
+          body: substitute(node.body, varName, replacement, newBoundInContext)
         };
     case 'application':
-      // Substitute in both function and argument.
-      // The new application node keeps its original `sourcePrimitiveName`.
       return {
-        ...cloneAST(node), // Clone to get new ID, preserves sourcePrimitiveName from original application
+        ...cloneAST(node),
         func: substitute(node.func, varName, replacement, boundInReplacementContext),
         arg: substitute(node.arg, varName, replacement, boundInReplacementContext),
       };
@@ -134,65 +110,67 @@ function substitute(node: ASTNode, varName: string, replacement: ASTNode, boundI
 }
 
 // Perform one step of beta-reduction (leftmost outermost)
-export function reduceStep(node: ASTNode): { newAst: ASTNode; changed: boolean; redexId?: ASTNodeId } {
-  freshVarCounter = 0; 
-  
-  function clearRedexMarks(currentNode: ASTNode): ASTNode {
-    currentNode.isRedex = false;
-    if (currentNode.type === 'lambda') {
-      clearRedexMarks(currentNode.body);
-    } else if (currentNode.type === 'application') {
-      clearRedexMarks(currentNode.func);
-      clearRedexMarks(currentNode.arg);
-    }
-    return currentNode;
-  }
-  const nodeWithoutRedexMarks = cloneAST(node);
-  clearRedexMarks(nodeWithoutRedexMarks);
+// This function now primarily returns the new AST and whether a change occurred.
+// The redexId marking is handled by analyzeForRedex for the *next* step's highlighting.
+export function reduceStep(inputNode: ASTNode): { newAst: ASTNode; changed: boolean } {
+  freshVarCounter = 0;
 
+  // Clone the input node to ensure no mutation of the original AST passed to this function
+  const node = cloneAST(inputNode);
 
-  function findAndReduce(currentNode: ASTNode): { newAst: ASTNode; changed: boolean; redexId?: ASTNodeId } {
+  function findAndReduceRecursive(currentNode: ASTNode): { resultNode: ASTNode; changedFlag: boolean } {
     if (currentNode.type === 'application') {
       if (currentNode.func.type === 'lambda') { // This is a redex
-        currentNode.isRedex = true;
-        currentNode.func.isRedex = true; // Mark the lambda part of the redex
-        // currentNode.arg can also be considered part of the redex implicitly
-
         const reducedBody = substitute(currentNode.func.body, currentNode.func.param, currentNode.arg);
-        // The reducedBody inherits sourcePrimitiveName from the original body of the lambda, if any.
-        return { newAst: reducedBody, changed: true, redexId: currentNode.id };
-      }
-      
-      // Not a redex at this level, try reducing the function part
-      const funcReduction = findAndReduce(currentNode.func);
-      if (funcReduction.changed) {
-        // If func changed, create new application node. It inherits current node's sourcePrimitiveName.
-        const newAppNode = cloneAST(currentNode) as Application;
-        newAppNode.func = funcReduction.newAst;
-        return { newAst: newAppNode, changed: true, redexId: funcReduction.redexId };
+        return { resultNode: reducedBody, changedFlag: true };
       }
 
-      // Function part didn't change, try reducing the argument part
-      const argReduction = findAndReduce(currentNode.arg);
-      if (argReduction.changed) {
-        // If arg changed, create new application node. It inherits current node's sourcePrimitiveName.
-        const newAppNode = cloneAST(currentNode) as Application;
-        newAppNode.arg = argReduction.newAst;
-        return { newAst: newAppNode, changed: true, redexId: argReduction.redexId };
+      const funcReduction = findAndReduceRecursive(currentNode.func);
+      if (funcReduction.changedFlag) {
+        const newAppNode = { ...cloneAST(currentNode) } as Application; // Clone to get new ID for the app node
+        newAppNode.func = funcReduction.resultNode;
+        return { resultNode: newAppNode, changedFlag: true };
+      }
+
+      const argReduction = findAndReduceRecursive(currentNode.arg);
+      if (argReduction.changedFlag) {
+        const newAppNode = { ...cloneAST(currentNode) } as Application; // Clone to get new ID
+        newAppNode.arg = argReduction.resultNode;
+        return { resultNode: newAppNode, changedFlag: true };
       }
     } else if (currentNode.type === 'lambda') {
-      // Try reducing the body of the lambda
-      const bodyReduction = findAndReduce(currentNode.body);
-      if (bodyReduction.changed) {
-        // If body changed, create new lambda node. It inherits current node's sourcePrimitiveName.
-        const newLambdaNode = cloneAST(currentNode) as Lambda;
-        newLambdaNode.body = bodyReduction.newAst;
-        return { newAst: newLambdaNode, changed: true, redexId: bodyReduction.redexId };
+      const bodyReduction = findAndReduceRecursive(currentNode.body);
+      if (bodyReduction.changedFlag) {
+        const newLambdaNode = { ...cloneAST(currentNode) } as Lambda; // Clone to get new ID
+        newLambdaNode.body = bodyReduction.resultNode;
+        return { resultNode: newLambdaNode, changedFlag: true };
       }
     }
-    // No reduction found in this branch
-    return { newAst: currentNode, changed: false };
+    return { resultNode: currentNode, changedFlag: false }; // No reduction found in this branch, return original (cloned) node
   }
-  
-  return findAndReduce(nodeWithoutRedexMarks);
+
+  const { resultNode, changedFlag } = findAndReduceRecursive(node);
+  return { newAst: resultNode, changed: changedFlag };
+}
+
+
+// New function to analyze an AST (without cloning/mutating) to find the next redex for highlighting.
+export function analyzeForRedex(node: ASTNode): { isReducible: boolean; redexId?: ASTNodeId } {
+  if (node.type === 'application') {
+    if (node.func.type === 'lambda') {
+      return { isReducible: true, redexId: node.id }; // Found a redex
+    }
+    // Check function part first (leftmost)
+    const funcAnalysis = analyzeForRedex(node.func);
+    if (funcAnalysis.isReducible) {
+      return funcAnalysis;
+    }
+    // If not in function, check argument part
+    return analyzeForRedex(node.arg);
+  } else if (node.type === 'lambda') {
+    // Redex can only be in the body of a lambda
+    return analyzeForRedex(node.body);
+  }
+  // Variables are not reducible
+  return { isReducible: false };
 }
