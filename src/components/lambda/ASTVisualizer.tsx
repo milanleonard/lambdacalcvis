@@ -26,7 +26,6 @@ const getNodeStyles = (node: SvgAstNode) => {
   let effectiveSourcePrimitive = node.sourcePrimitiveName;
 
   // If it's a collapsed node displaying a prettified name, use that for coloring.
-  // This check might need refinement if 'variable' type is overloaded too much.
   if (node.type === 'variable' && node.name.startsWith('_')) {
     effectiveSourcePrimitive = node.name;
   }
@@ -40,7 +39,7 @@ const getNodeStyles = (node: SvgAstNode) => {
       if (effectiveSourcePrimitive) {
         if (effectiveSourcePrimitive.startsWith("_POW") || effectiveSourcePrimitive.startsWith("_MULT") || effectiveSourcePrimitive.startsWith("_PLUS")) {
            fill = 'hsl(var(--ast-application-bg))'; textFill = 'hsl(var(--ast-application-fg))'; stroke = 'hsl(var(--ast-application-fg)/0.7)';
-        } else if (effectiveSourcePrimitive.startsWith("_SUCC") || effectiveSourcePrimitive.startsWith("_Y-COMB") || effectiveSourcePrimitive.startsWith("_NOT") ) {
+        } else if (effectiveSourcePrimitive.startsWith("_SUCC") || effectiveSourcePrimitive.startsWith("_Y-COMB") || effectiveSourcePrimitive.startsWith("_NOT") || effectiveSourcePrimitive.startsWith("_ID") || effectiveSourcePrimitive.startsWith("_TRUE") || effectiveSourcePrimitive.startsWith("_FALSE") || /^_\d+$/.test(effectiveSourcePrimitive) ) {
             fill = 'hsl(var(--ast-lambda-bg))'; textFill = 'hsl(var(--ast-lambda-fg))'; stroke = 'hsl(var(--ast-lambda-fg)/0.7)';
         }
       }
@@ -63,7 +62,7 @@ const getNodeStyles = (node: SvgAstNode) => {
   return { fill, stroke, textFill };
 };
 
-const clampValue = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const clampValue = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max));
 
 export function ASTVisualizer() {
   const { currentAST, isLoading, error: contextError, highlightedRedexId, customExpressions } = useLambda();
@@ -97,7 +96,7 @@ export function ASTVisualizer() {
       setSignificantPrettifiedName(null);
       setIsCollapsedMode(false);
     }
-  }, [currentAST, customExpressions]);
+  }, [currentAST, customExpressions, predefinedExpressions]);
 
 
   const svgRenderData: AstSvgRenderData | null = useMemo(() => {
@@ -131,8 +130,8 @@ export function ASTVisualizer() {
     let minTx, maxTx, minTy, maxTy;
 
     if (contentScaledWidth <= containerWidth) {
-      minTx = 0; // Allow to be flush left
-      maxTx = containerWidth - contentScaledWidth; // Allow to be flush right
+      minTx = 0; 
+      maxTx = containerWidth - contentScaledWidth; 
     } else {
       const minVisiblePartX = Math.max(10, contentScaledWidth * MIN_VISIBLE_CONTENT_PERCENTAGE);
       maxTx = containerWidth - minVisiblePartX; 
@@ -150,10 +149,10 @@ export function ASTVisualizer() {
     
     if (minTx > maxTx) { 
        if (contentScaledWidth > containerWidth) {
-            minTx = containerWidth - contentScaledWidth; // Ensure full scroll left
-            maxTx = 0; // Ensure full scroll right
+            minTx = containerWidth - contentScaledWidth; 
+            maxTx = 0; 
        } else { 
-            minTx = (containerWidth - contentScaledWidth) / 2; // Center if smaller
+            minTx = (containerWidth - contentScaledWidth) / 2; 
             maxTx = (containerWidth - contentScaledWidth) / 2;
        }
     }
@@ -263,7 +262,7 @@ export function ASTVisualizer() {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUpOrLeave}
         onMouseLeave={handleMouseUpOrLeave} 
-        onClick={handleSvgClick} // Add click handler to the container
+        onClick={handleSvgClick} 
       >
         {isLoading && !svgRenderData && (
           <div className="space-y-4 p-2">
@@ -307,8 +306,7 @@ export function ASTVisualizer() {
               {svgRenderData.nodes.map(node => {
                 const styles = getNodeStyles(node);
                 let textContent = '';
-                // For collapsed node, node.name IS the prettified name.
-                // For expanded nodes, derive text content as before.
+                
                 if (isCollapsedMode && significantPrettifiedName && node.name === significantPrettifiedName) {
                     textContent = node.name;
                 } else {
@@ -344,7 +342,7 @@ export function ASTVisualizer() {
                       fill={styles.textFill}
                       fontSize={NODE_FONT_SIZE} 
                       fontFamily="var(--font-geist-mono)"
-                      style={{ pointerEvents: 'none' }} // Make text non-interactive for clicks
+                      style={{ pointerEvents: 'none' }} 
                     >
                       {textContent}
                     </text>
@@ -364,3 +362,4 @@ export function ASTVisualizer() {
     </Card>
   );
 }
+
