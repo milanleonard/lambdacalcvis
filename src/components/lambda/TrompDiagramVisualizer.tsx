@@ -1,6 +1,6 @@
 
 "use client";
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useLambda } from '@/contexts/LambdaContext';
 import { generateTrompDiagramData, TrompDiagramRenderData } from '@/lib/lambda-calculus/tromp-diagram/renderer';
 import type { SvgElementData } from '@/lib/lambda-calculus/tromp-diagram/tromp-types';
@@ -8,97 +8,119 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, Info } from 'lucide-react';
-import { Slider } from "@/components/ui/slider";
-import { Label } from "@/components/ui/label";
-
-const DEFAULT_SCALE = 20;
-const MIN_SCALE = 5;
-const MAX_SCALE = 50;
+// Slider and Label are removed as we are implementing auto-scaling
+// import { Slider } from "@/components/ui/slider";
+// import { Label } from "@/components/ui/label";
 
 const primitiveColors: Record<string, string> = {
-  // Church Numerals like _0, _1, _2 ...
-  "_0": "hsl(var(--ast-variable-bg))", // Example color for ZERO
+  "_0": "hsl(var(--ast-variable-bg))",
   "_1": "hsl(var(--ast-variable-bg))",
   "_2": "hsl(var(--ast-variable-bg))",
   "_3": "hsl(var(--ast-variable-bg))",
-  // Add more numerals or a pattern if needed
-  
-  // Boolean Logic
   "_TRUE": "hsl(var(--ast-lambda-fg))",
   "_FALSE": "hsl(var(--ast-application-fg))",
-  "_NOT": "hsl(var(--ring))", // A different accent
+  "_NOT": "hsl(var(--ring))",
   "_AND": "hsl(var(--secondary))",
-  "_OR": "hsl(var(--secondary-foreground))", // Careful with fg/bg usage
-
-  // Arithmetic
+  "_OR": "hsl(var(--secondary-foreground))",
   "_SUCC": "hsl(var(--ast-lambda-bg))",
   "_PLUS": "hsl(var(--ast-application-bg))",
   "_MULT": "hsl(var(--destructive))",
   "_POW": "hsl(var(--primary))",
-
-  // Combinators
   "_ID": "hsl(var(--muted-foreground))",
   "_Y-COMB": "hsl(var(--accent))",
-
-  // Add custom terms dynamically if possible, or pre-define common ones
-  // For example, if a user defines _MYFUNC, it won't have a color here unless added.
 };
 
-// Helper to get color for a primitive
 function getPrimitiveColor(primitiveName?: string): string | undefined {
     if (!primitiveName) return undefined;
-
-    // Direct match
     if (primitiveColors[primitiveName]) {
         return primitiveColors[primitiveName];
     }
-    // Match for church numerals _N
     if (/^_\d+$/.test(primitiveName)) {
-        // Use a consistent color for all numerals not explicitly listed, or a hash-based one
-        return primitiveColors["_0"] || "hsl(var(--ast-variable-bg))"; // Default to _0's color or a fallback
+        return primitiveColors["_0"] || "hsl(var(--ast-variable-bg))";
     }
-    return undefined; // Default (will use foreground)
+    return undefined;
 }
-
 
 export function TrompDiagramVisualizer() {
   const { currentAST, isLoading: contextIsLoading, error: contextError } = useLambda();
   const [diagramData, setDiagramData] = useState<TrompDiagramRenderData | null>(null);
   const [internalLoading, setInternalLoading] = useState(false);
   const [internalError, setInternalError] = useState<string | null>(null);
-  const [scale, setScale] = useState(DEFAULT_SCALE);
+  
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+  const [autoScale, setAutoScale] = useState<number>(10); // Initial sensible default
 
   useEffect(() => {
-    if (currentAST) {
+    const currentContainer = containerRef.current;
+    if (!currentContainer) return;
+
+    const resizeObserver = new ResizeObserver(entries => {
+      if (!entries || entries.length === 0) return;
+      const { width, height } = entries[0].contentRect;
+      setContainerSize({ width, height });
+    });
+
+    resizeObserver.observe(currentContainer);
+    // Set initial size
+    const { width, height } = currentContainer.getBoundingClientRect();
+    setContainerSize({ width, height });
+    
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (currentAST && containerSize.width > 0 && containerSize.height > 0) {
       setInternalLoading(true);
       setInternalError(null);
-      requestAnimationFrame(() => {
-        try {
-          const data = generateTrompDiagramData(currentAST, scale);
-          setDiagramData(data);
-        } catch (e: any) {
-          console.error("Error generating Tromp diagram:", e);
-          setInternalError(e.message || "Failed to generate Tromp diagram.");
-          setDiagramData(null);
-        } finally {
+      // requestAnimationFrame not strictly necessary here, but can be kept if complex calcs were added
+      try {
+        // First pass to get grid units (scale = 1 for this)
+        const initialDiagramData = generateTrompDiagramData(currentAST, 1);
+
+        if (!initialDiagramData || initialDiagramData.widthInGridUnits <= 0 || initialDiagramData.heightInGridUnits <= 0) {
+          setDiagramData(initialDiagramData); 
           setInternalLoading(false);
+          setAutoScale(10); // Reset to default on empty/error
+          return;
         }
-      });
-    } else {
+
+        const { widthInGridUnits, heightInGridUnits } = initialDiagramData;
+        
+        const padding = 0.90; // 90% of available space, 5% padding on each side
+        const scaleX = (containerSize.width * padding) / widthInGridUnits;
+        const scaleY = (containerSize.height * padding) / heightInGridUnits;
+        const calculatedScale = Math.max(1, Math.min(scaleX, scaleY)); 
+
+        setAutoScale(calculatedScale);
+
+        const finalDiagramData = generateTrompDiagramData(currentAST, calculatedScale);
+        setDiagramData(finalDiagramData);
+
+      } catch (e: any) {
+        console.error("Error generating Tromp diagram:", e);
+        setInternalError(e.message || "Failed to generate Tromp diagram.");
+        setDiagramData(null);
+      } finally {
+        setInternalLoading(false);
+      }
+    } else if (!currentAST) {
       setDiagramData(null);
       setInternalError(null);
+      setAutoScale(10); // Reset scale
     }
-  }, [currentAST, scale]);
+  }, [currentAST, containerSize]); // Rerun when AST or container size changes
 
   const isLoading = contextIsLoading || internalLoading;
   const error = contextError || internalError;
 
   const memoizedSvgElements = useMemo(() => {
     if (!diagramData) return [];
+    // Stroke width in viewBox units. Aims for ~1px visual thickness.
+    // Min 0.02 to prevent it from disappearing if autoScale is huge.
+    const strokeW = Math.max(0.02, 1 / autoScale); 
     return diagramData.svgElements.map((el: SvgElementData) => {
-      const strokeW = 1 / scale; 
       const color = getPrimitiveColor(el.sourcePrimitiveName) || "hsl(var(--foreground))";
-
       const commonProps = {
         stroke: color, 
         strokeWidth: strokeW,
@@ -113,6 +135,7 @@ export function TrompDiagramVisualizer() {
             x2={el.x2}
             y2={el.y2}
             {...commonProps}
+            className="transition-all duration-200"
           >
             {el.title && <title>{el.title} (Primitive: {el.sourcePrimitiveName || 'N/A'})</title>}
           </line>
@@ -123,6 +146,7 @@ export function TrompDiagramVisualizer() {
             key={el.key}
             points={el.points}
             {...commonProps}
+            className="transition-all duration-200"
           >
             {el.sourcePrimitiveName && <title>Primitive: {el.sourcePrimitiveName}</title>}
           </polyline>
@@ -130,27 +154,17 @@ export function TrompDiagramVisualizer() {
       }
       return null;
     });
-  }, [diagramData, scale]);
+  }, [diagramData, autoScale]);
 
 
   return (
     <Card className="h-full flex flex-col">
-      <CardHeader className="flex flex-row items-center justify-between pb-2 pt-4">
+      <CardHeader className="flex flex-row items-center justify-between pb-2 pt-4 shrink-0">
         <CardTitle className="text-xl font-semibold">Tromp Diagram</CardTitle>
-        <div className="w-1/3 min-w-[200px]">
-          <Label htmlFor="tromp-scale" className="text-xs text-muted-foreground mr-2">Scale: {scale.toFixed(0)}</Label>
-          <Slider
-            id="tromp-scale"
-            min={MIN_SCALE}
-            max={MAX_SCALE}
-            step={1}
-            value={[scale]}
-            onValueChange={(value) => setScale(value[0])}
-          />
-        </div>
+        {/* Scale slider and label removed */}
       </CardHeader>
-      <CardContent className="flex-grow overflow-hidden">
-        <ScrollArea className="h-full p-1" viewportClassName="flex items-center justify-center">
+      <CardContent ref={containerRef} className="flex-grow overflow-hidden p-0">
+        <ScrollArea className="h-full w-full" viewportClassName="flex items-center justify-center">
           {isLoading && (
             <div className="space-y-4 w-full p-4">
               <Skeleton className="h-32 w-full" />
@@ -179,11 +193,12 @@ export function TrompDiagramVisualizer() {
           )}
           {diagramData && diagramData.svgElements.length > 0 && (
             <svg
+              key={currentAST?.id} // Key for fade-in animation trigger
               width={diagramData.actualWidthPx}
               height={diagramData.actualHeightPx}
               viewBox={diagramData.viewBox}
               xmlns="http://www.w3.org/2000/svg"
-              className="transition-all duration-100 ease-in-out border border-dashed border-border"
+              className="transition-opacity duration-300 ease-in-out border border-dashed border-border animate-trompDiagramFadeIn"
               preserveAspectRatio="xMidYMid meet"
             >
               <g transform="translate(0.5 0.5)"> 

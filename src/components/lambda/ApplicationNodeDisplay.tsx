@@ -22,7 +22,8 @@ export function ApplicationNodeDisplay({ node, depth, isHighlighted, redexIdToHi
       title="Application"
     >
       <span className="text-xs font-semibold uppercase text-[hsl(var(--ast-application-fg)/0.7)]">App</span>
-      <div className="flex flex-col md:flex-row items-stretch justify-around w-full mt-2 space-y-2 md:space-y-0 md:space-x-2">
+      {/* Always use flex-col for vertical stacking */}
+      <div className="flex flex-col items-stretch justify-around w-full mt-2 space-y-2">
         <div className="flex-1 p-1 border border-dashed border-[hsl(var(--ast-application-fg)/0.3)] rounded">
           <ASTNodeComponent node={node.func} depth={depth + 1} redexIdToHighlight={redexIdToHighlight} />
         </div>
