@@ -28,7 +28,7 @@ export default function HomePage() {
               <TabsTrigger value="ast">Abstract Syntax Tree</TabsTrigger>
               <TabsTrigger 
                 value="help" 
-                className="text-primary hover:text-primary/90 data-[state=active]:text-primary data-[state=active]:bg-primary/10 data-[state=active]:shadow-inner"
+                className="font-semibold data-[state=active]:text-primary data-[state=active]:bg-primary/10 data-[state=active]:shadow-inner hover:text-primary/90 text-foreground"
               >
                 <HelpCircle className="mr-2 h-4 w-4" />
                 Help

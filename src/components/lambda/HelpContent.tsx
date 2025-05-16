@@ -5,10 +5,47 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { ScrollArea } from "@/components/ui/scroll-area";
 import Image from 'next/image';
 
+const SimpleTrompSVG = ({ elements, width, height, viewBox, scale = 10, className } : { elements: { type: 'line' | 'polyline', points?: string, x1?:number, y1?:number, x2?:number, y2?:number }[], width: number, height: number, viewBox: string, scale?: number, className?: string }) => {
+  const strokeW = Math.max(0.1, 1 / scale) * 2; // Adjusted for visibility in help
+  return (
+    <svg 
+      width={width * scale} 
+      height={height * scale} 
+      viewBox={viewBox} 
+      xmlns="http://www.w3.org/2000/svg" 
+      className={className}
+      preserveAspectRatio="xMidYMid meet"
+    >
+      <g transform="translate(0.5 0.5)" stroke="hsl(var(--foreground))" strokeWidth={strokeW} fill="none">
+        {elements.map((el, i) => {
+          if (el.type === 'line') {
+            return <line key={i} x1={el.x1} y1={el.y1} x2={el.x2} y2={el.y2} />;
+          } else if (el.type === 'polyline') {
+            return <polyline key={i} points={el.points} />;
+          }
+          return null;
+        })}
+      </g>
+    </svg>
+  );
+};
+
+
 export function HelpContent() {
+  const idDiagramElements = [
+    { type: 'line' as const, x1: 0, y1: 0, x2: 0.6, y2: 0 }, // Lambda bar: λx
+    { type: 'line' as const, x1: 0.3, y1: 0, x2: 0.3, y2: 1 }  // Variable x connected to body
+  ];
+  const zeroDiagramElements = [
+    { type: 'line' as const, x1: 0, y1: 0, x2: 1, y2: 0 },    // Lambda bar: λf
+    { type: 'line' as const, x1: 0.2, y1: 1, x2: 0.8, y2: 1 },// Lambda bar: λx (body of f)
+    { type: 'line' as const, x1: 0.5, y1: 1, x2: 0.5, y2: 2 }  // Variable x connected to its bar
+  ];
+
+
   return (
     <ScrollArea className="h-full w-full p-1">
-      <div className="space-y-6 p-4 max-w-4xl mx-auto">
+      <div className="space-y-6 p-4 max-w-4xl mx-auto help-content">
         <Card className="shadow-lg">
           <CardHeader>
             <CardTitle className="text-3xl font-bold text-primary">Welcome to LambdaVis!</CardTitle>
@@ -118,32 +155,33 @@ export function HelpContent() {
                 <div className="border p-2 rounded-md bg-card-foreground/5">
                   <p className="font-medium text-center">_ID (<code>λx.x</code>)</p>
                   <div className="flex justify-center items-center h-32">
-                    <Image src="https://placehold.co/150x100.png" alt="Tromp Diagram for ID" width={150} height={100} data-ai-hint="lambda calculus diagram" className="rounded"/>
+                     <SimpleTrompSVG elements={idDiagramElements} width={0.6} height={1} viewBox="0 0 0.6 1" scale={60} className="rounded border border-muted" />
                   </div>
                   <p className="text-xs text-center mt-1">A simple horizontal bar for λx, and a vertical line connecting x in the body back to the bar.</p>
                 </div>
                 <div className="border p-2 rounded-md bg-card-foreground/5">
                   <p className="font-medium text-center">_0 (<code>λf.λx.x</code>)</p>
                    <div className="flex justify-center items-center h-32">
-                    <Image src="https://placehold.co/200x150.png" alt="Tromp Diagram for Church Numeral 0" width={200} height={150} data-ai-hint="lambda calculus zero" className="rounded"/>
+                    <SimpleTrompSVG elements={zeroDiagramElements} width={1} height={2} viewBox="0 0 1 2" scale={40} className="rounded border border-muted" />
                   </div>
                   <p className="text-xs text-center mt-1">Two nested lambda bars (for f and x). The body 'x' connects directly to the inner λx bar.</p>
                 </div>
                 <div className="border p-2 rounded-md bg-card-foreground/5">
                   <p className="font-medium text-center">_NOT (<code>λp.p _FALSE _TRUE</code>) - conceptual</p>
                   <div className="flex justify-center items-center h-32">
-                     <Image src="https://placehold.co/300x200.png" alt="Tromp Diagram for NOT (conceptual)" width={300} height={200} data-ai-hint="lambda calculus NOT" className="rounded"/>
+                     <Image src="https://placehold.co/250x180.png" alt="Conceptual Tromp Diagram for Church Boolean NOT" width={250} height={180} data-ai-hint="lambda calculus NOT" className="rounded"/>
                   </div>
-                  <p className="text-xs text-center mt-1">A lambda bar for 'p'. Below it, an application structure for 'p _FALSE', then its result applied to '_TRUE'.</p>
+                  <p className="text-xs text-center mt-1">A lambda bar for 'p'. Below it, an application structure for 'p _FALSE', then its result applied to '_TRUE'. (Complex to draw statically)</p>
                 </div>
                  <div className="border p-2 rounded-md bg-card-foreground/5">
                   <p className="font-medium text-center">_3 (<code>λf.λx.f(f(fx))</code>) - conceptual</p>
                   <div className="flex justify-center items-center h-32">
-                     <Image src="https://placehold.co/300x250.png" alt="Tromp Diagram for Church Numeral 3 (conceptual)" width={300} height={250} data-ai-hint="lambda calculus three" className="rounded"/>
+                     <Image src="https://placehold.co/280x220.png" alt="Conceptual Tromp Diagram for Church Numeral 3" width={280} height={220} data-ai-hint="lambda calculus three" className="rounded"/>
                   </div>
-                  <p className="text-xs text-center mt-1">Shows nested applications of 'f' connecting back to the λf bar, and 'x' connecting to λx bar.</p>
+                  <p className="text-xs text-center mt-1">Shows nested applications of 'f' connecting back to the λf bar, and 'x' connecting to λx bar. (Complex to draw statically)</p>
                 </div>
               </div>
+               <p className="text-xs mt-4 text-muted-foreground">Note: Full Tromp diagram generation for complex terms like _NOT or _3 within this static help section is intricate. The diagrams for _ID and _0 are simplified direct SVG renderings. The main "Tromp Diagram" tab provides dynamic generation for any expression you input.</p>
             </div>
           </CardContent>
         </Card>
