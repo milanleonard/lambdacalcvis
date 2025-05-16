@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLambda } from '@/contexts/LambdaContext';
 import { generateTrompDiagramData, TrompDiagramRenderData } from '@/lib/lambda-calculus/tromp-diagram/renderer';
+import type { SvgElementData } from '@/lib/lambda-calculus/tromp-diagram/tromp-types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -13,6 +14,52 @@ import { Label } from "@/components/ui/label";
 const DEFAULT_SCALE = 20;
 const MIN_SCALE = 5;
 const MAX_SCALE = 50;
+
+const primitiveColors: Record<string, string> = {
+  // Church Numerals like _0, _1, _2 ...
+  "_0": "hsl(var(--ast-variable-bg))", // Example color for ZERO
+  "_1": "hsl(var(--ast-variable-bg))",
+  "_2": "hsl(var(--ast-variable-bg))",
+  "_3": "hsl(var(--ast-variable-bg))",
+  // Add more numerals or a pattern if needed
+  
+  // Boolean Logic
+  "_TRUE": "hsl(var(--ast-lambda-fg))",
+  "_FALSE": "hsl(var(--ast-application-fg))",
+  "_NOT": "hsl(var(--ring))", // A different accent
+  "_AND": "hsl(var(--secondary))",
+  "_OR": "hsl(var(--secondary-foreground))", // Careful with fg/bg usage
+
+  // Arithmetic
+  "_SUCC": "hsl(var(--ast-lambda-bg))",
+  "_PLUS": "hsl(var(--ast-application-bg))",
+  "_MULT": "hsl(var(--destructive))",
+  "_POW": "hsl(var(--primary))",
+
+  // Combinators
+  "_ID": "hsl(var(--muted-foreground))",
+  "_Y-COMB": "hsl(var(--accent))",
+
+  // Add custom terms dynamically if possible, or pre-define common ones
+  // For example, if a user defines _MYFUNC, it won't have a color here unless added.
+};
+
+// Helper to get color for a primitive
+function getPrimitiveColor(primitiveName?: string): string | undefined {
+    if (!primitiveName) return undefined;
+
+    // Direct match
+    if (primitiveColors[primitiveName]) {
+        return primitiveColors[primitiveName];
+    }
+    // Match for church numerals _N
+    if (/^_\d+$/.test(primitiveName)) {
+        // Use a consistent color for all numerals not explicitly listed, or a hash-based one
+        return primitiveColors["_0"] || "hsl(var(--ast-variable-bg))"; // Default to _0's color or a fallback
+    }
+    return undefined; // Default (will use foreground)
+}
+
 
 export function TrompDiagramVisualizer() {
   const { currentAST, isLoading: contextIsLoading, error: contextError } = useLambda();
@@ -25,7 +72,6 @@ export function TrompDiagramVisualizer() {
     if (currentAST) {
       setInternalLoading(true);
       setInternalError(null);
-      // Use requestAnimationFrame to avoid blocking the main thread for potentially complex calculations
       requestAnimationFrame(() => {
         try {
           const data = generateTrompDiagramData(currentAST, scale);
@@ -49,14 +95,12 @@ export function TrompDiagramVisualizer() {
 
   const memoizedSvgElements = useMemo(() => {
     if (!diagramData) return [];
-    return diagramData.svgElements.map(el => {
-      // For a ~1px visual stroke independent of zoom, make strokeWidth proportional to 1/scale.
-      // If scale is DEFAULT_SCALE (20), strokeWidth = 1/20 = 0.05 for a 1px line.
-      // So, strokeWidth = (1 / scale) effectively.
+    return diagramData.svgElements.map((el: SvgElementData) => {
       const strokeW = 1 / scale; 
+      const color = getPrimitiveColor(el.sourcePrimitiveName) || "hsl(var(--foreground))";
 
       const commonProps = {
-        stroke: "hsl(var(--foreground))", 
+        stroke: color, 
         strokeWidth: strokeW,
         fill: "none",
       };
@@ -70,7 +114,7 @@ export function TrompDiagramVisualizer() {
             y2={el.y2}
             {...commonProps}
           >
-            {el.title && <title>{el.title}</title>}
+            {el.title && <title>{el.title} (Primitive: {el.sourcePrimitiveName || 'N/A'})</title>}
           </line>
         );
       } else if (el.type === 'polyline') {
@@ -79,7 +123,9 @@ export function TrompDiagramVisualizer() {
             key={el.key}
             points={el.points}
             {...commonProps}
-          />
+          >
+            {el.sourcePrimitiveName && <title>Primitive: {el.sourcePrimitiveName}</title>}
+          </polyline>
         );
       }
       return null;
@@ -112,7 +158,7 @@ export function TrompDiagramVisualizer() {
               <Skeleton className="h-16 w-full" />
             </div>
           )}
-          {error && !diagramData && ( // Show error if diagramData is null due to error
+          {error && !diagramData && ( 
             <div className="flex flex-col items-center justify-center h-full text-destructive p-4 text-center">
               <AlertTriangle className="w-12 h-12 mb-3" />
               <p className="text-lg">Error generating diagram.</p>
@@ -125,7 +171,7 @@ export function TrompDiagramVisualizer() {
                 <p className="text-lg">Enter a Lambda Calculus expression.</p>
             </div>
           )}
-           {!isLoading && !error && currentAST && !diagramData && !internalError && ( // AST exists, but no data and no specific internal error yet
+           {!isLoading && !error && currentAST && !diagramData && !internalError && ( 
              <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 text-center">
                 <Info className="w-10 h-10 mb-3" />
                 <p className="text-lg">Diagram will appear here.</p>
@@ -138,10 +184,8 @@ export function TrompDiagramVisualizer() {
               viewBox={diagramData.viewBox}
               xmlns="http://www.w3.org/2000/svg"
               className="transition-all duration-100 ease-in-out border border-dashed border-border"
-              // Preserve aspect ratio and center the diagram
               preserveAspectRatio="xMidYMid meet"
             >
-              {/* translate(0.5,0.5) for crisp lines, applied to the group containing all elements */}
               <g transform="translate(0.5 0.5)"> 
                 {memoizedSvgElements}
               </g>
