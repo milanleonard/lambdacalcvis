@@ -2,7 +2,10 @@
 "use client";
 import React, { useMemo, useState, useRef, WheelEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect } from 'react';
 import { useLambda } from '@/contexts/LambdaContext';
-import { generateAstSvgData, AstSvgRenderData, SvgAstNode, SvgLambdaNode, SvgVariableNode, SvgApplicationNode } from '@/lib/lambda-calculus/ast-svg/ast-svg-loader';
+import { generateAstSvgData, AstSvgRenderData, SvgAstNode, SvgLambdaNode, SvgVariableNode, SvgApplicationNode, generateSingleNodeSvgData } from '@/lib/lambda-calculus/ast-svg/ast-svg-loader';
+import { prettifyAST } from '@/lib/lambda-calculus/prettifier';
+import { print } from '@/lib/lambda-calculus/printer';
+import { predefinedExpressions } from '@/lib/lambda-calculus/predefined';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, Info, Home } from 'lucide-react';
@@ -10,23 +13,37 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
 const NODE_FONT_SIZE = 14;
-const NODE_RX = 6; // Corner radius
+const NODE_RX = 6; 
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 5;
-const FIT_PADDING_FACTOR = 0.9; 
-const MIN_VISIBLE_CONTENT_PERCENTAGE = 0.1; // Ensure at least 10% of content is visible when larger than view
+const FIT_PADDING_FACTOR = 0.9;
+const MIN_VISIBLE_CONTENT_PERCENTAGE = 0.1;
 
-// Helper function to get node specific styles
 const getNodeStyles = (node: SvgAstNode) => {
   let fill = 'hsl(var(--card))';
   let stroke = 'hsl(var(--border))';
   let textFill = 'hsl(var(--foreground))';
+  let effectiveSourcePrimitive = node.sourcePrimitiveName;
+
+  // If it's a collapsed node displaying a prettified name, use that for coloring.
+  // This check might need refinement if 'variable' type is overloaded too much.
+  if (node.type === 'variable' && node.name.startsWith('_')) {
+    effectiveSourcePrimitive = node.name;
+  }
+
 
   switch (node.type) {
-    case 'variable':
+    case 'variable': // Also used for single collapsed node
       fill = 'hsl(var(--ast-variable-bg))';
       stroke = 'hsl(var(--ast-variable-fg)/0.7)';
       textFill = 'hsl(var(--ast-variable-fg))';
+      if (effectiveSourcePrimitive) {
+        if (effectiveSourcePrimitive.startsWith("_POW") || effectiveSourcePrimitive.startsWith("_MULT") || effectiveSourcePrimitive.startsWith("_PLUS")) {
+           fill = 'hsl(var(--ast-application-bg))'; textFill = 'hsl(var(--ast-application-fg))'; stroke = 'hsl(var(--ast-application-fg)/0.7)';
+        } else if (effectiveSourcePrimitive.startsWith("_SUCC") || effectiveSourcePrimitive.startsWith("_Y-COMB") || effectiveSourcePrimitive.startsWith("_NOT") ) {
+            fill = 'hsl(var(--ast-lambda-bg))'; textFill = 'hsl(var(--ast-lambda-fg))'; stroke = 'hsl(var(--ast-lambda-fg)/0.7)';
+        }
+      }
       break;
     case 'lambda':
       fill = 'hsl(var(--ast-lambda-bg))';
@@ -43,14 +60,13 @@ const getNodeStyles = (node: SvgAstNode) => {
   if (node.isHighlighted) {
     stroke = 'hsl(var(--ast-highlight-bg))';
   }
-
   return { fill, stroke, textFill };
 };
 
 const clampValue = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 export function ASTVisualizer() {
-  const { currentAST, isLoading, error: contextError, highlightedRedexId } = useLambda();
+  const { currentAST, isLoading, error: contextError, highlightedRedexId, customExpressions } = useLambda();
 
   const [scale, setScale] = useState(1);
   const [translateX, setTranslateX] = useState(0);
@@ -58,17 +74,45 @@ export function ASTVisualizer() {
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
 
+  const [isCollapsedMode, setIsCollapsedMode] = useState(true);
+  const [significantPrettifiedName, setSignificantPrettifiedName] = useState<string | null>(null);
+
   const svgContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (currentAST) {
+      const prettyName = prettifyAST(currentAST, customExpressions, predefinedExpressions);
+      const canonicalPrintVal = print(currentAST);
+      
+      const isSignificant = prettyName !== canonicalPrintVal && !prettyName.includes(" ") && prettyName.startsWith('_');
+      
+      if (isSignificant) {
+        setSignificantPrettifiedName(prettyName);
+        setIsCollapsedMode(true); // Default to collapsed if a good name exists
+      } else {
+        setSignificantPrettifiedName(null);
+        setIsCollapsedMode(false); // Show full tree
+      }
+    } else {
+      setSignificantPrettifiedName(null);
+      setIsCollapsedMode(false);
+    }
+  }, [currentAST, customExpressions]);
+
 
   const svgRenderData: AstSvgRenderData | null = useMemo(() => {
     if (!currentAST) return null;
     try {
+      if (isCollapsedMode && significantPrettifiedName) {
+        // Pass the significantPrettifiedName for coloring the single node.
+        return generateSingleNodeSvgData(significantPrettifiedName, currentAST.id, significantPrettifiedName);
+      }
       return generateAstSvgData(currentAST, highlightedRedexId);
     } catch (e: any) {
       console.error("Error generating AST SVG data:", e);
       return { nodes: [], connectors: [], canvasWidth: 300, canvasHeight: 100, error: e.message || "Layout error" };
     }
-  }, [currentAST, highlightedRedexId]);
+  }, [currentAST, highlightedRedexId, isCollapsedMode, significantPrettifiedName]);
 
   const layoutError = svgRenderData?.error;
   const displayError = contextError || layoutError;
@@ -77,24 +121,21 @@ export function ASTVisualizer() {
     if (!svgContainerRef.current || !svgRenderData || svgRenderData.canvasWidth <= 0 || svgRenderData.canvasHeight <= 0) {
       return { x: targetTx, y: targetTy };
     }
-
     const containerWidth = svgContainerRef.current.clientWidth;
     const containerHeight = svgContainerRef.current.clientHeight;
-    
     const contentNaturalWidth = svgRenderData.canvasWidth;
     const contentNaturalHeight = svgRenderData.canvasHeight;
-
     const contentScaledWidth = contentNaturalWidth * currentScale;
     const contentScaledHeight = contentNaturalHeight * currentScale;
 
     let minTx, maxTx, minTy, maxTy;
 
     if (contentScaledWidth <= containerWidth) {
-      minTx = 0;
-      maxTx = containerWidth - contentScaledWidth;
+      minTx = 0; // Allow to be flush left
+      maxTx = containerWidth - contentScaledWidth; // Allow to be flush right
     } else {
       const minVisiblePartX = Math.max(10, contentScaledWidth * MIN_VISIBLE_CONTENT_PERCENTAGE);
-      maxTx = containerWidth - minVisiblePartX;
+      maxTx = containerWidth - minVisiblePartX; 
       minTx = minVisiblePartX - contentScaledWidth;
     }
 
@@ -103,16 +144,16 @@ export function ASTVisualizer() {
       maxTy = containerHeight - contentScaledHeight;
     } else {
       const minVisiblePartY = Math.max(10, contentScaledHeight * MIN_VISIBLE_CONTENT_PERCENTAGE);
-      maxTy = containerHeight - minVisiblePartY; // Corrected from maxY
-      minTy = minVisiblePartY - contentScaledHeight;
+      maxTy = containerHeight - minVisiblePartY; 
+      minTy = minVisiblePartY - contentScaledHeight; 
     }
     
     if (minTx > maxTx) { 
        if (contentScaledWidth > containerWidth) {
-            minTx = containerWidth - contentScaledWidth;
-            maxTx = 0;
-       } else { // Content is smaller or equal, but minVisiblePart logic caused issues. Default to center-ish.
-            minTx = (containerWidth - contentScaledWidth) / 2;
+            minTx = containerWidth - contentScaledWidth; // Ensure full scroll left
+            maxTx = 0; // Ensure full scroll right
+       } else { 
+            minTx = (containerWidth - contentScaledWidth) / 2; // Center if smaller
             maxTx = (containerWidth - contentScaledWidth) / 2;
        }
     }
@@ -125,61 +166,51 @@ export function ASTVisualizer() {
             maxTy = (containerHeight - contentScaledHeight) / 2;
        }
     }
-
     return {
       x: clampValue(targetTx, minTx, maxTx),
       y: clampValue(targetTy, minTy, maxTy),
     };
   }, [svgRenderData]);
 
-
   const fitView = useCallback(() => {
     if (svgContainerRef.current && svgRenderData && svgRenderData.canvasWidth > 0 && svgRenderData.canvasHeight > 0) {
       const containerWidth = svgContainerRef.current.clientWidth;
       const containerHeight = svgContainerRef.current.clientHeight;
-
       if (containerWidth <=0 || containerHeight <=0) return; 
 
       const scaleX = (containerWidth * FIT_PADDING_FACTOR) / svgRenderData.canvasWidth;
       const scaleY = (containerHeight * FIT_PADDING_FACTOR) / svgRenderData.canvasHeight;
-      
       let newScale = Math.min(scaleX, scaleY);
       newScale = clampValue(newScale, MIN_SCALE, MAX_SCALE);
 
       const newTranslateX = (containerWidth - svgRenderData.canvasWidth * newScale) / 2;
       const newTranslateY = (containerHeight - svgRenderData.canvasHeight * newScale) / 2;
       
+      const clamped = getClampedTranslations(newTranslateX, newTranslateY, newScale);
       setScale(newScale);
-      setTranslateX(newTranslateX);
-      setTranslateY(newTranslateY);
+      setTranslateX(clamped.x);
+      setTranslateY(clamped.y);
     }
-  }, [svgRenderData]);
+  }, [svgRenderData, getClampedTranslations]);
 
   useEffect(() => {
     fitView();
-  }, [currentAST, svgRenderData, fitView]); 
-
+  }, [svgRenderData, fitView]); 
 
   const handleWheel = (e: WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
     if (!svgContainerRef.current || !svgRenderData) return;
-
     const rect = svgContainerRef.current.getBoundingClientRect();
     const mouseX = e.clientX - rect.left; 
     const mouseY = e.clientY - rect.top;  
-
     const oldScale = scale;
     let newProposedScale = oldScale * (e.deltaY > 0 ? 0.9 : 1.1);
     const newScale = clampValue(newProposedScale, MIN_SCALE, MAX_SCALE);
-
     const worldMouseX = (mouseX - translateX) / oldScale;
     const worldMouseY = (mouseY - translateY) / oldScale;
-
     const newTx = mouseX - worldMouseX * newScale;
     const newTy = mouseY - worldMouseY * newScale;
-    
     const clamped = getClampedTranslations(newTx, newTy, newScale);
-
     setScale(newScale);
     setTranslateX(clamped.x);
     setTranslateY(clamped.y);
@@ -194,12 +225,9 @@ export function ASTVisualizer() {
 
   const handleMouseMove = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (!isPanning || !svgContainerRef.current || !svgRenderData) return;
-    
     const newTx = e.clientX - panStart.x;
     const newTy = e.clientY - panStart.y;
-
     const clamped = getClampedTranslations(newTx, newTy, scale);
-    
     setTranslateX(clamped.x);
     setTranslateY(clamped.y);
   };
@@ -213,6 +241,12 @@ export function ASTVisualizer() {
     }
   };
   
+  const handleSvgClick = () => {
+    if (significantPrettifiedName) { // Only allow toggling if a prettified view is possible
+      setIsCollapsedMode(prev => !prev);
+    }
+  };
+
   return (
     <Card className="h-full flex flex-col">
       <CardHeader className="flex flex-row items-center justify-between">
@@ -229,6 +263,7 @@ export function ASTVisualizer() {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUpOrLeave}
         onMouseLeave={handleMouseUpOrLeave} 
+        onClick={handleSvgClick} // Add click handler to the container
       >
         {isLoading && !svgRenderData && (
           <div className="space-y-4 p-2">
@@ -252,7 +287,7 @@ export function ASTVisualizer() {
         )}
         {svgRenderData && svgRenderData.nodes.length > 0 && !displayError && (
           <svg
-            key={currentAST?.id || 'ast-svg'} 
+            key={currentAST?.id ? `${currentAST.id}-${isCollapsedMode}` : `ast-svg-${isCollapsedMode}`}
             width="100%" 
             height="100%"
             xmlns="http://www.w3.org/2000/svg"
@@ -272,17 +307,24 @@ export function ASTVisualizer() {
               {svgRenderData.nodes.map(node => {
                 const styles = getNodeStyles(node);
                 let textContent = '';
-                switch (node.type) {
-                  case 'variable':
-                    textContent = (node as SvgVariableNode).name;
-                    break;
-                  case 'lambda':
-                    textContent = `λ${(node as SvgLambdaNode).param}.`;
-                    break;
-                  case 'application':
-                    textContent = '@'; 
-                    break;
+                // For collapsed node, node.name IS the prettified name.
+                // For expanded nodes, derive text content as before.
+                if (isCollapsedMode && significantPrettifiedName && node.name === significantPrettifiedName) {
+                    textContent = node.name;
+                } else {
+                    switch (node.type) {
+                    case 'variable':
+                        textContent = (node as SvgVariableNode).name;
+                        break;
+                    case 'lambda':
+                        textContent = `λ${(node as SvgLambdaNode).param}.`;
+                        break;
+                    case 'application':
+                        textContent = '@'; 
+                        break;
+                    }
                 }
+                
                 return (
                   <g key={node.svgId} transform={`translate(${node.x}, ${node.y})`}>
                     <rect
@@ -302,6 +344,7 @@ export function ASTVisualizer() {
                       fill={styles.textFill}
                       fontSize={NODE_FONT_SIZE} 
                       fontFamily="var(--font-geist-mono)"
+                      style={{ pointerEvents: 'none' }} // Make text non-interactive for clicks
                     >
                       {textContent}
                     </text>
