@@ -1,48 +1,159 @@
 
 "use client";
 
+import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import Image from 'next/image';
+import { parse } from '@/lib/lambda-calculus/parser';
+import { generateTrompDiagramData, type TrompDiagramRenderData } from '@/lib/lambda-calculus/tromp-diagram/renderer';
+import type { SvgElementData } from '@/lib/lambda-calculus/tromp-diagram/tromp-types';
+import type { ASTNode } from '@/lib/lambda-calculus/types';
+import { predefinedExpressions } from '@/lib/lambda-calculus/predefined'; // For parser context
+import { cn } from "@/lib/utils";
 
-const SimpleTrompSVG = ({ elements, width, height, viewBox, scale = 10, className } : { elements: { type: 'line' | 'polyline', points?: string, x1?:number, y1?:number, x2?:number, y2?:number }[], width: number, height: number, viewBox: string, scale?: number, className?: string }) => {
-  const strokeW = Math.max(0.1, 1 / scale) * 2; // Adjusted for visibility in help
+// Primitive colors - consistent with TrompDiagramVisualizer
+const primitiveColors: Record<string, string> = {
+  "_0": "hsl(var(--ast-variable-bg))",
+  "_1": "hsl(var(--ast-variable-bg))",
+  "_2": "hsl(var(--ast-variable-bg))",
+  "_3": "hsl(var(--ast-variable-bg))",
+  "_TRUE": "hsl(var(--ast-lambda-fg))",
+  "_FALSE": "hsl(var(--ast-application-fg))",
+  "_NOT": "hsl(var(--ring))",
+  "_AND": "hsl(var(--secondary))",
+  "_OR": "hsl(var(--secondary-foreground))",
+  "_SUCC": "hsl(var(--ast-lambda-bg))",
+  "_PLUS": "hsl(var(--ast-application-bg))",
+  "_MULT": "hsl(var(--destructive))",
+  "_POW": "hsl(var(--primary))",
+  "_ID": "hsl(var(--muted-foreground))",
+  "_Y-COMB": "hsl(var(--accent))",
+};
+
+// getPrimitiveColor function - consistent with TrompDiagramVisualizer
+function getPrimitiveColor(primitiveName?: string): string | undefined {
+    if (!primitiveName) return undefined;
+    if (primitiveColors[primitiveName]) {
+        return primitiveColors[primitiveName];
+    }
+    if (/^_\d+$/.test(primitiveName)) { // For _4, _5 etc.
+        return primitiveColors["_0"] || "hsl(var(--ast-variable-bg))";
+    }
+    return undefined;
+}
+
+interface StaticTrompDiagramProps {
+  termString: string;
+  displayName: string;
+  targetWidth: number;
+  maxHeight: number;
+  className?: string;
+}
+
+const StaticTrompDiagram: React.FC<StaticTrompDiagramProps> = ({
+  termString,
+  displayName,
+  targetWidth,
+  maxHeight,
+  className,
+}) => {
+  const diagramData: TrompDiagramRenderData | null = useMemo(() => {
+    try {
+      // Pass predefined expressions as context for parsing _ID, _0 etc.
+      const ast: ASTNode = parse(termString, predefinedExpressions);
+
+      // First pass to get grid units (scale = 1 for this)
+      const initialDiagramData = generateTrompDiagramData(ast, 1);
+      if (!initialDiagramData || initialDiagramData.widthInGridUnits <= 0 || initialDiagramData.heightInGridUnits <= 0) {
+        return null;
+      }
+
+      const { widthInGridUnits, heightInGridUnits } = initialDiagramData;
+
+      const paddingFactor = 0.85; // Use 85% of available space
+      const availableWidth = targetWidth * paddingFactor;
+      const availableHeight = maxHeight * paddingFactor;
+
+      let calculatedScale = 10; // Default scale
+      if (widthInGridUnits > 0 && heightInGridUnits > 0) {
+          const scaleX = availableWidth / widthInGridUnits;
+          const scaleY = availableHeight / heightInGridUnits;
+          calculatedScale = Math.max(1, Math.min(scaleX, scaleY));
+      }
+
+      return generateTrompDiagramData(ast, calculatedScale);
+    } catch (error) {
+      console.error(`Error generating Tromp diagram for ${displayName}:`, error);
+      return null;
+    }
+  }, [termString, displayName, targetWidth, maxHeight]);
+
+  if (!diagramData) {
+    return (
+      <div className={cn("flex items-center justify-center border rounded-md bg-muted text-destructive text-xs p-2", className)} style={{width: targetWidth, height: maxHeight / 2}}>
+        Error generating diagram for {displayName}.
+      </div>
+    );
+  }
+
+  const strokeW = Math.max(0.1, 1 / (diagramData.actualWidthPx / diagramData.widthInGridUnits)); // Adjusted stroke width
+
   return (
-    <svg 
-      width={width * scale} 
-      height={height * scale} 
-      viewBox={viewBox} 
-      xmlns="http://www.w3.org/2000/svg" 
-      className={className}
-      preserveAspectRatio="xMidYMid meet"
-    >
-      <g transform="translate(0.5 0.5)" stroke="hsl(var(--foreground))" strokeWidth={strokeW} fill="none">
-        {elements.map((el, i) => {
-          if (el.type === 'line') {
-            return <line key={i} x1={el.x1} y1={el.y1} x2={el.x2} y2={el.y2} />;
-          } else if (el.type === 'polyline') {
-            return <polyline key={i} points={el.points} />;
-          }
-          return null;
-        })}
-      </g>
-    </svg>
+    <div className={cn("flex flex-col items-center border rounded-md p-2 bg-background", className)}>
+      <p className="font-medium text-sm mb-1 text-center">{displayName}</p>
+      <svg
+        width={diagramData.actualWidthPx}
+        height={diagramData.actualHeightPx}
+        viewBox={diagramData.viewBox}
+        xmlns="http://www.w3.org/2000/svg"
+        preserveAspectRatio="xMidYMid meet"
+        className="border border-dashed border-border"
+      >
+        <g transform="translate(0.5 0.5)">
+          {diagramData.svgElements.map((el: SvgElementData) => {
+            const color = getPrimitiveColor(el.sourcePrimitiveName) || "hsl(var(--foreground))";
+            const commonProps = {
+              stroke: color,
+              strokeWidth: strokeW,
+              fill: "none",
+            };
+            if (el.type === 'line') {
+              return (
+                <line
+                  key={el.key}
+                  x1={el.x1}
+                  y1={el.y1}
+                  x2={el.x2}
+                  y2={el.y2}
+                  {...commonProps}
+                >
+                  {el.title && <title>{el.title} (Primitive: {el.sourcePrimitiveName || 'N/A'})</title>}
+                </line>
+              );
+            } else if (el.type === 'polyline') {
+              return (
+                <polyline
+                  key={el.key}
+                  points={el.points}
+                  {...commonProps}
+                >
+                   {el.sourcePrimitiveName && <title>Primitive: {el.sourcePrimitiveName}</title>}
+                </polyline>
+              );
+            }
+            return null;
+          })}
+        </g>
+      </svg>
+       <p className="text-xs text-muted-foreground text-center mt-1">
+        {termString}
+      </p>
+    </div>
   );
 };
 
 
 export function HelpContent() {
-  const idDiagramElements = [
-    { type: 'line' as const, x1: 0, y1: 0, x2: 0.6, y2: 0 }, // Lambda bar: λx
-    { type: 'line' as const, x1: 0.3, y1: 0, x2: 0.3, y2: 1 }  // Variable x connected to body
-  ];
-  const zeroDiagramElements = [
-    { type: 'line' as const, x1: 0, y1: 0, x2: 1, y2: 0 },    // Lambda bar: λf
-    { type: 'line' as const, x1: 0.2, y1: 1, x2: 0.8, y2: 1 },// Lambda bar: λx (body of f)
-    { type: 'line' as const, x1: 0.5, y1: 1, x2: 0.5, y2: 2 }  // Variable x connected to its bar
-  ];
-
-
   return (
     <ScrollArea className="h-full w-full p-1">
       <div className="space-y-6 p-4 max-w-4xl mx-auto help-content">
@@ -137,7 +248,7 @@ export function HelpContent() {
             <div>
               <h4 className="font-semibold text-lg mb-1">Key Visual Elements:</h4>
               <ul className="list-disc list-inside space-y-1 pl-4">
-                <li><strong>Lambda Abstraction (<code>λx.M</code>):</strong> Represented by a horizontal bar. The variable <code>x</code> is "bound" or "introduced" at this bar (its name might appear above it). The body <code>M</code> is drawn below.</li>
+                <li><strong>Lambda Abstraction (<code>λx.M</code>):</strong> Represented by a horizontal bar. The variable <code>x</code> is "bound" or "introduced" at this bar. The body <code>M</code> is drawn below.</li>
                 <li><strong>Variable Occurrence (<code>x</code>):</strong> A vertical line connecting an occurrence of <code>x</code> back up to the horizontal bar where it was bound.</li>
                 <li><strong>Application (<code>M N</code>):</strong> Represented by "hook" or "corner" shapes. The function <code>M</code> and argument <code>N</code> are inputs, and the result is an output.
                   <ul className="list-circle list-inside pl-6 mt-1">
@@ -150,38 +261,13 @@ export function HelpContent() {
               <p className="mt-2">Data generally flows from top-to-bottom and left-to-right. Shared sub-expressions are naturally represented by lines converging.</p>
             </div>
             <div>
-              <h4 className="font-semibold text-lg mb-1">Example Diagrams (Illustrative):</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                <div className="border p-2 rounded-md bg-card-foreground/5">
-                  <p className="font-medium text-center">_ID (<code>λx.x</code>)</p>
-                  <div className="flex justify-center items-center h-32">
-                     <SimpleTrompSVG elements={idDiagramElements} width={0.6} height={1} viewBox="0 0 0.6 1" scale={60} className="rounded border border-muted" />
-                  </div>
-                  <p className="text-xs text-center mt-1">A simple horizontal bar for λx, and a vertical line connecting x in the body back to the bar.</p>
-                </div>
-                <div className="border p-2 rounded-md bg-card-foreground/5">
-                  <p className="font-medium text-center">_0 (<code>λf.λx.x</code>)</p>
-                   <div className="flex justify-center items-center h-32">
-                    <SimpleTrompSVG elements={zeroDiagramElements} width={1} height={2} viewBox="0 0 1 2" scale={40} className="rounded border border-muted" />
-                  </div>
-                  <p className="text-xs text-center mt-1">Two nested lambda bars (for f and x). The body 'x' connects directly to the inner λx bar.</p>
-                </div>
-                <div className="border p-2 rounded-md bg-card-foreground/5">
-                  <p className="font-medium text-center">_NOT (<code>λp.p _FALSE _TRUE</code>) - conceptual</p>
-                  <div className="flex justify-center items-center h-32">
-                     <Image src="https://placehold.co/250x180.png" alt="Conceptual Tromp Diagram for Church Boolean NOT" width={250} height={180} data-ai-hint="lambda calculus NOT" className="rounded"/>
-                  </div>
-                  <p className="text-xs text-center mt-1">A lambda bar for 'p'. Below it, an application structure for 'p _FALSE', then its result applied to '_TRUE'. (Complex to draw statically)</p>
-                </div>
-                 <div className="border p-2 rounded-md bg-card-foreground/5">
-                  <p className="font-medium text-center">_3 (<code>λf.λx.f(f(fx))</code>) - conceptual</p>
-                  <div className="flex justify-center items-center h-32">
-                     <Image src="https://placehold.co/280x220.png" alt="Conceptual Tromp Diagram for Church Numeral 3" width={280} height={220} data-ai-hint="lambda calculus three" className="rounded"/>
-                  </div>
-                  <p className="text-xs text-center mt-1">Shows nested applications of 'f' connecting back to the λf bar, and 'x' connecting to λx bar. (Complex to draw statically)</p>
-                </div>
+              <h4 className="font-semibold text-lg mb-1">Example Diagrams:</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4 items-start">
+                <StaticTrompDiagram termString="_ID" displayName="Identity (_ID)" targetWidth={150} maxHeight={120} />
+                <StaticTrompDiagram termString="_0" displayName="Church Numeral 0 (_0)" targetWidth={150} maxHeight={120} />
+                <StaticTrompDiagram termString="_NOT" displayName="Boolean NOT (_NOT)" targetWidth={200} maxHeight={180} />
+                <StaticTrompDiagram termString="_3" displayName="Church Numeral 3 (_3)" targetWidth={200} maxHeight={180} />
               </div>
-               <p className="text-xs mt-4 text-muted-foreground">Note: Full Tromp diagram generation for complex terms like _NOT or _3 within this static help section is intricate. The diagrams for _ID and _0 are simplified direct SVG renderings. The main "Tromp Diagram" tab provides dynamic generation for any expression you input.</p>
             </div>
           </CardContent>
         </Card>
@@ -230,4 +316,3 @@ export function HelpContent() {
     </ScrollArea>
   );
 }
-
