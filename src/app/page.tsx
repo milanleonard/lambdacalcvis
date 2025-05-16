@@ -6,11 +6,12 @@ import { LambdaProvider } from '@/contexts/LambdaContext';
 import { ExpressionInputCard } from '@/components/lambda/ExpressionInputCard';
 import { ASTVisualizer } from '@/components/lambda/ASTVisualizer';
 import { TrompDiagramVisualizer } from '@/components/lambda/TrompDiagramVisualizer';
+import { ExperimentalTrompDiagram } from '@/components/lambda/ExperimentalTrompDiagram'; // New Import
 import { HelpContent } from '@/components/lambda/HelpContent';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { HelpCircle } from 'lucide-react';
+import { HelpCircle, Beaker } from 'lucide-react'; // Added Beaker for experimental
 
-type VisualizationStyle = "ast" | "tromp" | "help";
+type VisualizationStyle = "tromp" | "experimental_tromp" | "ast" | "help"; // Added new style
 
 export default function HomePage() {
   const [activeTab, setActiveTab] = useState<VisualizationStyle>("tromp");
@@ -25,6 +26,10 @@ export default function HomePage() {
           <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as VisualizationStyle)} className="flex flex-col h-full">
             <TabsList className="mb-2 shrink-0">
               <TabsTrigger value="tromp">Tromp Diagram</TabsTrigger>
+              <TabsTrigger value="experimental_tromp">
+                <Beaker className="mr-2 h-4 w-4 text-primary" />
+                Experimental Diagram
+              </TabsTrigger>
               <TabsTrigger value="ast">Abstract Syntax Tree</TabsTrigger>
               <TabsTrigger 
                 value="help" 
@@ -36,6 +41,9 @@ export default function HomePage() {
             </TabsList>
             <TabsContent value="tromp" className="flex-grow h-[calc(100%-2.5rem)]">
               <TrompDiagramVisualizer />
+            </TabsContent>
+            <TabsContent value="experimental_tromp" className="flex-grow h-[calc(100%-2.5rem)]">
+              <ExperimentalTrompDiagram />
             </TabsContent>
             <TabsContent value="ast" className="flex-grow h-[calc(100%-2.5rem)]">
               <ASTVisualizer />
