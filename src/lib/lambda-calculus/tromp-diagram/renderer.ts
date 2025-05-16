@@ -11,7 +11,8 @@ function drawNodeRecursive(
   currentRow: number,
   currentCol: number,
   parentPrimitiveName?: string,
-  highlightedRedexId?: ASTNodeId 
+  highlightedRedexId?: ASTNodeId,
+  isRedexArgumentPart?: boolean // New flag
 ): DrawTermResult {
   const effectivePrimitiveName = term.sourcePrimitiveName || parentPrimitiveName;
   const isCurrentTermRedex = term.id === highlightedRedexId;
@@ -20,11 +21,12 @@ function drawNodeRecursive(
     const varNode = term as Variable;
     const varName = varNode.name;
     const bindingInfo = lambdaLinks.get(varName);
+    const currentIsSecondaryHighlight = isRedexArgumentPart && !isCurrentTermRedex;
 
     if (bindingInfo === undefined) {
       const varLinePrimitiveName = term.sourcePrimitiveName || effectivePrimitiveName; 
       if (toLeave === null) {
-        grid.drawv(currentRow - 0.5, currentRow, currentCol, varLinePrimitiveName, isCurrentTermRedex);
+        grid.drawv(currentRow - 0.5, currentRow, currentCol, varLinePrimitiveName, isCurrentTermRedex, currentIsSecondaryHighlight);
         return {
             dimensions: { row: currentRow + 1, col: currentCol + 1 },
             leftoverConnection: undefined,
@@ -40,7 +42,7 @@ function drawNodeRecursive(
     const varLinePrimitiveName = bindingInfo.sourcePrimitiveName || term.sourcePrimitiveName || effectivePrimitiveName;
 
     if (toLeave === null) {
-        grid.drawv(bindingInfo.row, currentRow, currentCol, varLinePrimitiveName, isCurrentTermRedex);
+        grid.drawv(bindingInfo.row, currentRow, currentCol, varLinePrimitiveName, isCurrentTermRedex, currentIsSecondaryHighlight);
         return {
             dimensions: { row: currentRow + 1, col: currentCol + 1 },
             leftoverConnection: undefined,
@@ -53,9 +55,22 @@ function drawNodeRecursive(
     }
   } else if (term.type === 'application') {
     const appNode = term as Application;
+    let funcIsRedexArg = isRedexArgumentPart;
+    let argIsRedexArg = isRedexArgumentPart;
+    let connectorIsHighlighted = false;
+    let connectorIsSecondaryHighlighted = isRedexArgumentPart && !isCurrentTermRedex;
 
-    const leftResult = drawNodeRecursive(appNode.func, grid, lambdaLinks, 'R', currentRow, currentCol, effectivePrimitiveName, highlightedRedexId);
-    const rightResult = drawNodeRecursive(appNode.arg, grid, lambdaLinks, 'L', currentRow, leftResult.dimensions.col, effectivePrimitiveName, highlightedRedexId);
+
+    if (isCurrentTermRedex) { // This application is the main redex
+        connectorIsHighlighted = true;
+        funcIsRedexArg = false; // func part of redex is not "argument of redex"
+        argIsRedexArg = true;   // arg part of redex *is* "argument of redex"
+        connectorIsSecondaryHighlighted = false; // Main redex connector uses primary highlight
+    }
+
+
+    const leftResult = drawNodeRecursive(appNode.func, grid, lambdaLinks, 'R', currentRow, currentCol, effectivePrimitiveName, highlightedRedexId, funcIsRedexArg);
+    const rightResult = drawNodeRecursive(appNode.arg, grid, lambdaLinks, 'L', currentRow, leftResult.dimensions.col, effectivePrimitiveName, highlightedRedexId, argIsRedexArg);
 
     if (!leftResult.leftoverConnection || !rightResult.leftoverConnection) {
         throw new Error("Application children did not return leftover connections as expected.");
@@ -69,23 +84,20 @@ function drawNodeRecursive(
     const bottomRowForHorizontalConnection = contentMaxRow;
     const finalCol = rightResult.dimensions.col;
     
-    // The application's U-bar is highlighted if this application node is the redex
-    const highlightAppConnector = isCurrentTermRedex;
-
     if (toLeave === 'L') {
-      grid.drawbl(r_over_r, bottomRowForHorizontalConnection, l_over_c, r_over_c, effectivePrimitiveName, highlightAppConnector);
+      grid.drawbl(r_over_r, bottomRowForHorizontalConnection, l_over_c, r_over_c, effectivePrimitiveName, connectorIsHighlighted, connectorIsSecondaryHighlighted);
       return {
         dimensions: { row: bottomRowForHorizontalConnection + 1, col: finalCol },
         leftoverConnection: { row: l_over_r, col: l_over_c, sourcePrimitiveName: leftResult.leftoverConnection.sourcePrimitiveName },
       };
     } else if (toLeave === 'R') {
-      grid.drawfl(l_over_r, bottomRowForHorizontalConnection, l_over_c, r_over_c, effectivePrimitiveName, highlightAppConnector);
+      grid.drawfl(l_over_r, bottomRowForHorizontalConnection, l_over_c, r_over_c, effectivePrimitiveName, connectorIsHighlighted, connectorIsSecondaryHighlighted);
       return {
         dimensions: { row: bottomRowForHorizontalConnection + 1, col: finalCol },
         leftoverConnection: { row: r_over_r, col: r_over_c, sourcePrimitiveName: rightResult.leftoverConnection.sourcePrimitiveName },
       };
     } else { 
-      grid.drawu(l_over_r, bottomRowForHorizontalConnection, r_over_r, l_over_c, r_over_c, effectivePrimitiveName, highlightAppConnector);
+      grid.drawu(l_over_r, bottomRowForHorizontalConnection, r_over_r, l_over_c, r_over_c, effectivePrimitiveName, connectorIsHighlighted, connectorIsSecondaryHighlighted);
       return {
         dimensions: { row: bottomRowForHorizontalConnection + 1, col: finalCol },
         leftoverConnection: undefined,
@@ -95,6 +107,7 @@ function drawNodeRecursive(
     const lambdaNode = term as Lambda;
     const varName = lambdaNode.param;
     const oldBindingInfo = lambdaLinks.get(varName);
+    const currentIsSecondaryHighlight = isRedexArgumentPart && !isCurrentTermRedex;
 
     lambdaLinks.set(varName, {row: currentRow, sourcePrimitiveName: effectivePrimitiveName});
 
@@ -106,7 +119,8 @@ function drawNodeRecursive(
       currentRow + 1,
       currentCol,
       effectivePrimitiveName,
-      highlightedRedexId
+      highlightedRedexId,
+      isRedexArgumentPart // Propagate if this lambda is part of redex arg
     );
 
     if (oldBindingInfo !== undefined) {
@@ -115,11 +129,8 @@ function drawNodeRecursive(
       lambdaLinks.delete(varName);
     }
     
-    // Lambda bar is highlighted if this lambda is part of the redex (e.g. the function part of an application redex)
-    // This exact logic might need refinement if we want to distinguish lambda itself vs. it being part of a redex application.
-    // For now, let's assume if the lambda's term ID is highlighted, its bar is too.
-    const highlightLambdaBar = isCurrentTermRedex; 
-    grid.drawl(currentRow, currentCol, bodyResult.dimensions.col - 1, varName, effectivePrimitiveName, highlightLambdaBar);
+    const lambdaBarIsHighlighted = isCurrentTermRedex; 
+    grid.drawl(currentRow, currentCol, bodyResult.dimensions.col - 1, varName, effectivePrimitiveName, lambdaBarIsHighlighted, currentIsSecondaryHighlight);
 
     return {
       dimensions: { row: bodyResult.dimensions.row, col: bodyResult.dimensions.col },
@@ -152,7 +163,7 @@ export function generateTrompDiagramData(
 
   const nullGrid = new NullGrid();
   const firstPassLambdaLinks: LambdaLinksMap = new Map(initialLambdaLinks);
-  const dimResult = drawNodeRecursive(term, nullGrid, firstPassLambdaLinks, null, 0, 0, term.sourcePrimitiveName, highlightedRedexId);
+  const dimResult = drawNodeRecursive(term, nullGrid, firstPassLambdaLinks, null, 0, 0, term.sourcePrimitiveName, highlightedRedexId, false);
 
   if (dimResult.leftoverConnection && term.type !== 'variable') { 
      console.warn("Tromp Diagram: Top-level expression (not a var) returned a leftover connection.", term, dimResult.leftoverConnection);
@@ -163,7 +174,7 @@ export function generateTrompDiagramData(
 
   const svgGrid = new SvgCollectingGrid(scale);
   const secondPassLambdaLinks: LambdaLinksMap = new Map(initialLambdaLinks);
-  drawNodeRecursive(term, svgGrid, secondPassLambdaLinks, null, 0, 0, term.sourcePrimitiveName, highlightedRedexId);
+  drawNodeRecursive(term, svgGrid, secondPassLambdaLinks, null, 0, 0, term.sourcePrimitiveName, highlightedRedexId, false);
 
   return {
     svgElements: svgGrid.svgElements,

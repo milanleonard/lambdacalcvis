@@ -17,9 +17,9 @@ const primitiveColors: Record<string, string> = {
   "_3": "hsl(var(--ast-variable-bg))",
   "_TRUE": "hsl(var(--ast-lambda-fg))",
   "_FALSE": "hsl(var(--ast-application-fg))",
-  "_NOT": "hsl(var(--ring))",
+  "_NOT": "hsl(var(--ring))", // Using ring color for NOT, can be adjusted
   "_AND": "hsl(var(--secondary))",
-  "_OR": "hsl(var(--secondary-foreground))",
+  "_OR": "hsl(var(--secondary-foreground))", // Might be hard to see on dark bg, consider alt
   "_SUCC": "hsl(var(--ast-lambda-bg))",
   "_PLUS": "hsl(var(--ast-application-bg))",
   "_MULT": "hsl(var(--destructive))",
@@ -33,13 +33,15 @@ function getPrimitiveColor(primitiveName?: string): string | undefined {
     if (primitiveColors[primitiveName]) {
         return primitiveColors[primitiveName];
     }
-    if (/^_\d+$/.test(primitiveName)) {
+    // Fallback for _N where N > 3 or other _Names not in primitiveColors
+    if (/^_\d+$/.test(primitiveName)) { // For _4, _5 etc.
         return primitiveColors["_0"] || "hsl(var(--ast-variable-bg))";
     }
-    return undefined;
+    return undefined; // Default if no match
 }
 
 const HIGHLIGHT_COLOR = "hsl(var(--ast-highlight-bg))";
+const SECONDARY_HIGHLIGHT_COLOR = "hsl(var(--ring))"; // Example: Use ring color for secondary
 const DEFAULT_STROKE_COLOR = "hsl(var(--foreground))";
 
 export function TrompDiagramVisualizer() {
@@ -50,8 +52,9 @@ export function TrompDiagramVisualizer() {
   
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
-  const [autoScale, setAutoScale] = useState<number>(10);
+  const [autoScale, setAutoScale] = useState<number>(10); // Default scale
 
+  // Effect for observing container size
   useEffect(() => {
     const currentContainer = containerRef.current;
     if (!currentContainer) return;
@@ -63,35 +66,41 @@ export function TrompDiagramVisualizer() {
     });
 
     resizeObserver.observe(currentContainer);
+    // Initial size
     const { width, height } = currentContainer.getBoundingClientRect();
     setContainerSize({ width, height });
     
     return () => resizeObserver.disconnect();
   }, []);
 
+  // Effect for generating diagram data when AST, size, or redex ID changes
   useEffect(() => {
     if (currentAST && containerSize.width > 0 && containerSize.height > 0) {
       setInternalLoading(true);
       setInternalError(null);
       try {
+        // First pass to get grid units (scale = 1 for this)
         const initialDiagramData = generateTrompDiagramData(currentAST, 1, highlightedRedexId);
 
         if (!initialDiagramData || initialDiagramData.widthInGridUnits <= 0 || initialDiagramData.heightInGridUnits <= 0) {
-          setDiagramData(initialDiagramData); 
+          // Handle cases like single variable which might have 0x0 grid initially, or error.
+          setDiagramData(initialDiagramData); // Still set it, might contain error or be empty
           setInternalLoading(false);
-          setAutoScale(10);
+          setAutoScale(10); // Reset scale
           return;
         }
 
         const { widthInGridUnits, heightInGridUnits } = initialDiagramData;
         
-        const padding = 0.90;
+        // Calculate scale to fit, with padding
+        const padding = 0.90; // Use 90% of available space
         const scaleX = (containerSize.width * padding) / widthInGridUnits;
         const scaleY = (containerSize.height * padding) / heightInGridUnits;
-        const calculatedScale = Math.max(1, Math.min(scaleX, scaleY)); 
+        const calculatedScale = Math.max(1, Math.min(scaleX, scaleY)); // Ensure scale is at least 1
 
-        setAutoScale(calculatedScale);
+        setAutoScale(calculatedScale); // Store the calculated scale for stroke width adjustments
 
+        // Second pass with the calculated scale
         const finalDiagramData = generateTrompDiagramData(currentAST, calculatedScale, highlightedRedexId);
         setDiagramData(finalDiagramData);
 
@@ -103,24 +112,36 @@ export function TrompDiagramVisualizer() {
         setInternalLoading(false);
       }
     } else if (!currentAST) {
+      // Clear diagram if no AST
       setDiagramData(null);
       setInternalError(null);
-      setAutoScale(10);
+      setAutoScale(10); // Reset scale
     }
   }, [currentAST, containerSize, highlightedRedexId]);
+
 
   const isLoading = contextIsLoading || internalLoading;
   const error = contextError || internalError;
 
   const memoizedSvgElements = useMemo(() => {
     if (!diagramData) return [];
-    const strokeW = Math.max(0.02, 1 / autoScale); 
-    const highlightedStrokeW = Math.max(0.04, 2 / autoScale);
+    
+    // Adjust stroke width based on the autoScale, aiming for a visually consistent thickness.
+    // Max ensures it's not too thin on very large scales. Min ensures it's visible.
+    const baseStrokeW = Math.max(0.02, 1 / autoScale); 
+    const highlightedStrokeW = Math.max(0.04, 2 / autoScale); // Highlighted lines slightly thicker
 
     return diagramData.svgElements.map((el: SvgElementData) => {
-      const baseColor = getPrimitiveColor(el.sourcePrimitiveName) || DEFAULT_STROKE_COLOR;
-      const strokeColor = el.isHighlighted ? HIGHLIGHT_COLOR : baseColor;
-      const currentStrokeWidth = el.isHighlighted ? highlightedStrokeW : strokeW;
+      let strokeColor = getPrimitiveColor(el.sourcePrimitiveName) || DEFAULT_STROKE_COLOR;
+      let currentStrokeWidth = baseStrokeW;
+
+      if (el.isHighlighted) {
+        strokeColor = HIGHLIGHT_COLOR;
+        currentStrokeWidth = highlightedStrokeW;
+      } else if (el.isSecondaryHighlight) {
+        strokeColor = SECONDARY_HIGHLIGHT_COLOR;
+        currentStrokeWidth = highlightedStrokeW * 0.8; // Slightly thinner than primary highlight
+      }
       
       const commonProps = {
         stroke: strokeColor, 
@@ -136,9 +157,11 @@ export function TrompDiagramVisualizer() {
             x2={el.x2}
             y2={el.y2}
             {...commonProps}
-            className="transition-all duration-200"
+            className="transition-all duration-200" // For color/stroke changes
           >
+            {/* Tooltip for line: shows name if it's a lambda bar, or primitive */}
             {el.title && <title>{el.title} (Primitive: {el.sourcePrimitiveName || 'N/A'})</title>}
+            {!el.title && el.sourcePrimitiveName && <title>Primitive: {el.sourcePrimitiveName}</title>}
           </line>
         );
       } else if (el.type === 'polyline') {
@@ -147,9 +170,10 @@ export function TrompDiagramVisualizer() {
             key={el.key}
             points={el.points}
             {...commonProps}
-            className="transition-all duration-200"
+            className="transition-all duration-200" // For color/stroke changes
           >
-            {el.sourcePrimitiveName && <title>Primitive: {el.sourcePrimitiveName}</title>}
+             {/* Tooltip for polyline: shows primitive */}
+             {el.sourcePrimitiveName && <title>Primitive: {el.sourcePrimitiveName}</title>}
           </polyline>
         );
       }
@@ -163,7 +187,7 @@ export function TrompDiagramVisualizer() {
       <CardHeader className="flex flex-row items-center justify-between pb-2 pt-4 shrink-0">
         <CardTitle className="text-xl font-semibold">Tromp Diagram</CardTitle>
       </CardHeader>
-      <CardContent ref={containerRef} className="flex-grow overflow-hidden p-0">
+      <CardContent ref={containerRef} className="flex-grow overflow-hidden p-0"> {/* Ensure p-0 if ScrollArea handles padding */}
         <ScrollArea className="h-full w-full" viewportClassName="flex items-center justify-center">
           {isLoading && (
             <div className="space-y-4 w-full p-4">
@@ -172,7 +196,7 @@ export function TrompDiagramVisualizer() {
               <Skeleton className="h-16 w-full" />
             </div>
           )}
-          {error && !diagramData && ( 
+          {error && !diagramData && ( // Only show major error if no diagram data at all
             <div className="flex flex-col items-center justify-center h-full text-destructive p-4 text-center">
               <AlertTriangle className="w-12 h-12 mb-3" />
               <p className="text-lg">Error generating diagram.</p>
@@ -185,6 +209,7 @@ export function TrompDiagramVisualizer() {
                 <p className="text-lg">Enter a Lambda Calculus expression.</p>
             </div>
           )}
+           {/* Case where AST is present, but diagram might be empty or couldn't generate (e.g. single var might be empty) */}
            {!isLoading && !error && currentAST && !diagramData && !internalError && ( 
              <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 text-center">
                 <Info className="w-10 h-10 mb-3" />
@@ -193,19 +218,22 @@ export function TrompDiagramVisualizer() {
           )}
           {diagramData && diagramData.svgElements.length > 0 && (
             <svg
+              // Key ensures re-mount on AST change for fade-in. Include redexId for highlight changes.
               key={`${currentAST?.id}-${highlightedRedexId || 'no-highlight'}`} 
               width={diagramData.actualWidthPx}
               height={diagramData.actualHeightPx}
               viewBox={diagramData.viewBox}
               xmlns="http://www.w3.org/2000/svg"
               className="transition-opacity duration-300 ease-in-out border border-dashed border-border animate-trompDiagramFadeIn"
-              preserveAspectRatio="xMidYMid meet"
+              preserveAspectRatio="xMidYMid meet" // Ensures diagram scales to fit its allocated SVG space
             >
-              <g transform="translate(0.5 0.5)"> 
+              {/* Group for global transform if needed, also for consistent stroke scaling */}
+              <g transform="translate(0.5 0.5)"> {/* Offset by 0.5px for sharper lines */}
                 {memoizedSvgElements}
               </g>
             </svg>
           )}
+           {/* Case: Diagram data exists but has no elements (e.g., single variable) */}
            {diagramData && diagramData.svgElements.length === 0 && !isLoading && !error && (
              <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 text-center">
                 <Info className="w-10 h-10 mb-3" />

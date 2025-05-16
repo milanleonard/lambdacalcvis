@@ -4,11 +4,11 @@ import type { Grid, SvgElementData } from './tromp-types';
 let elementKeyCounter = 0;
 
 export class NullGrid implements Grid {
-  drawl(r: number, cstart: number, cend: number, name?: string, sourcePrimitiveName?: string, isHighlighted?: boolean): void {}
-  drawv(rstart: number, rend: number, c: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void {}
-  drawfl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void {}
-  drawbl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void {}
-  drawu(rstart: number, rend: number, rback: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void {}
+  drawl(r: number, cstart: number, cend: number, name?: string, sourcePrimitiveName?: string, isHighlighted?: boolean, isSecondaryHighlight?: boolean): void {}
+  drawv(rstart: number, rend: number, c: number, sourcePrimitiveName?: string, isHighlighted?: boolean, isSecondaryHighlight?: boolean): void {}
+  drawfl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean, isSecondaryHighlight?: boolean): void {}
+  drawbl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean, isSecondaryHighlight?: boolean): void {}
+  drawu(rstart: number, rend: number, rback: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean, isSecondaryHighlight?: boolean): void {}
 }
 
 export class SvgCollectingGrid implements Grid {
@@ -22,7 +22,7 @@ export class SvgCollectingGrid implements Grid {
     return `tromp-elem-${elementKeyCounter++}`;
   }
 
-  drawl(r: number, cstart: number, cend: number, name?: string, sourcePrimitiveName?: string, isHighlighted?: boolean): void {
+  drawl(r: number, cstart: number, cend: number, name?: string, sourcePrimitiveName?: string, isHighlighted?: boolean, isSecondaryHighlight?: boolean): void {
     let line_cstart = cstart - 1/3;
     let line_cend = cend + 1/3;
     
@@ -41,10 +41,11 @@ export class SvgCollectingGrid implements Grid {
       title: name,
       sourcePrimitiveName,
       isHighlighted,
+      isSecondaryHighlight,
     });
   }
 
-  drawv(rstart: number, rend: number, c: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void {
+  drawv(rstart: number, rend: number, c: number, sourcePrimitiveName?: string, isHighlighted?: boolean, isSecondaryHighlight?: boolean): void {
     this.svgElements.push({
       type: 'line',
       key: this.nextKey(),
@@ -54,36 +55,40 @@ export class SvgCollectingGrid implements Grid {
       y2: rend,
       sourcePrimitiveName,
       isHighlighted,
+      isSecondaryHighlight,
     });
   }
 
-  drawfl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void { 
+  drawfl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean, isSecondaryHighlight?: boolean): void { 
     this.svgElements.push({
       type: 'polyline',
       key: this.nextKey(),
       points: `${cstart},${rstart} ${cstart},${rend} ${cend},${rend}`,
       sourcePrimitiveName,
       isHighlighted,
+      isSecondaryHighlight,
     });
   }
 
-  drawbl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void { 
+  drawbl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean, isSecondaryHighlight?: boolean): void { 
     this.svgElements.push({
       type: 'polyline',
       key: this.nextKey(),
       points: `${cstart},${rend} ${cend},${rend} ${cend},${rstart}`,
       sourcePrimitiveName,
       isHighlighted,
+      isSecondaryHighlight,
     });
   }
 
-  drawu(rstart: number, rend: number, rback: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void { 
+  drawu(rstart: number, rend: number, rback: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean, isSecondaryHighlight?: boolean): void { 
     this.svgElements.push({
       type: 'polyline',
       key: this.nextKey(),
       points: `${cstart},${rstart} ${cstart},${rend} ${cend},${rend} ${cend},${rback}`,
       sourcePrimitiveName,
       isHighlighted,
+      isSecondaryHighlight,
     });
   }
 }
