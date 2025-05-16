@@ -26,7 +26,10 @@ export default function HomePage() {
             <TabsList className="mb-2 shrink-0">
               <TabsTrigger value="tromp">Tromp Diagram</TabsTrigger>
               <TabsTrigger value="ast">Abstract Syntax Tree</TabsTrigger>
-              <TabsTrigger value="help" className="text-primary hover:text-primary/90 data-[state=active]:text-primary data-[state=active]:bg-primary/10">
+              <TabsTrigger 
+                value="help" 
+                className="text-primary hover:text-primary/90 data-[state=active]:text-primary data-[state=active]:bg-primary/10 data-[state=active]:shadow-inner"
+              >
                 <HelpCircle className="mr-2 h-4 w-4" />
                 Help
               </TabsTrigger>
