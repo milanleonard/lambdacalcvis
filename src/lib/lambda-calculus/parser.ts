@@ -90,7 +90,6 @@ function parseTerm(state: ParserState): ASTNode {
     if (expr.sourcePrimitiveName && peek(state) === ')') {
         // If a parenthesized expression resolves to a tagged primitive, and it's the end of the paren group,
         // its tag should be preserved.
-        // Example: (_ID) should retain its _ID tag.
         // This is implicitly handled if parsePrimaryExpressionSequence correctly propagates tags.
     }
     consume(state, ')');
@@ -120,12 +119,16 @@ function parseLambda(state: ParserState): Lambda {
 
 // Tokenizer
 function tokenize(input: string): string[] {
-  // Step 1: Only replace λ with \ initially. Leave L as is.
+  // Step 1: Replace actual lambda character with backslash for internal consistency.
   const partiallySanitizedInput = input.replace(/λ/g, '\\');
   
-  // Step 2: Tokenize using the regex.
-  // Groups: 1: \, 2: (, 3: ), 4: ., 5: _IDENTIFIER, 6: _NUMBER, 7: IDENTIFIER
-  const regex = /(\\)|(\()|(\))|(\.)|(_[a-zA-Z0-9_'](?:'[a-zA-Z0-9_'])*)|(_\d+)|([a-zA-Z][a-zA-Z0-9_']*(?:'[a-zA-Z0-9_'])*)/g;
+  // Step 2: Tokenize using the refined regex.
+  // Order of regex parts matters:
+  // 1. Special single characters: \, (, ), .
+  // 2. _Number: `_` followed by digits (e.g., _0, _123)
+  // 3. _Name: `_` followed by a letter or underscore, then letters, digits, or underscores (e.g., _ID, _POW, _myVar)
+  // 4. PlainVarOrL: A letter, followed by letters, digits, or underscores (e.g., x, varName, L)
+  const regex = /(\\)|(\()|(\))|(\.)|(_\d+)|(_[a-zA-Z_][a-zA-Z0-9_]*)|([a-zA-Z][a-zA-Z0-9_]*)/g;
 
   const rawTokens: string[] = [];
   let match;
@@ -139,7 +142,8 @@ function tokenize(input: string): string[] {
     }
   }
   
-  // Step 3: Post-process tokens. If a token is exactly "L", change it to "\".
+  // Step 3: Post-process tokens. If a token is exactly "L" (captured as a plain variable),
+  // change it to "\" to represent a lambda.
   const finalTokens = rawTokens.map(token => {
     if (token === 'L') {
       return '\\';
