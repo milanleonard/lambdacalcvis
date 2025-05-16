@@ -8,7 +8,6 @@ export interface LambdaBindingInfo extends TrompPoint {
   sourcePrimitiveName?: string;
 }
 
-// Instead of Map<string, number>, use Map<string, LambdaBindingInfo>
 export type LambdaLinksMap = Map<string, LambdaBindingInfo>;
 
 
@@ -19,34 +18,35 @@ export interface SvgLine {
   y1: number;
   x2: number;
   y2: number;
-  stroke?: string; // Will be determined by visualizer based on sourcePrimitiveName
+  stroke?: string; 
   strokeWidth?: number;
-  title?: string; // For lambda name
-  sourcePrimitiveName?: string; // To guide coloring
+  title?: string; 
+  sourcePrimitiveName?: string; 
+  isHighlighted?: boolean; // New: For highlighting redex parts
 }
 
 export interface SvgPolyline {
   type: 'polyline';
   key: string;
-  points: string; // e.g., "x1,y1 x2,y2 x3,y3"
+  points: string; 
   fill?: string;
-  stroke?: string; // Will be determined by visualizer based on sourcePrimitiveName
+  stroke?: string; 
   strokeWidth?: number;
-  sourcePrimitiveName?: string; // To guide coloring
+  sourcePrimitiveName?: string; 
+  isHighlighted?: boolean; // New: For highlighting redex parts
 }
 
 export type SvgElementData = SvgLine | SvgPolyline;
 
 export interface Grid {
-  drawl(r: number, cstart: number, cend: number, name?: string, sourcePrimitiveName?: string): void; // Lambda bar
-  drawv(rstart: number, rend: number, c: number, sourcePrimitiveName?: string): void; // Variable connection
-  drawfl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string): void; // Forward L (┌) for application
-  drawbl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string): void; // Backward L (┐) for application
-  drawu(rstart: number, rend: number, rback: number, cstart: number, cend: number, sourcePrimitiveName?: string): void; // U shape for application
+  drawl(r: number, cstart: number, cend: number, name?: string, sourcePrimitiveName?: string, isHighlighted?: boolean): void; 
+  drawv(rstart: number, rend: number, c: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void; 
+  drawfl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void; 
+  drawbl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void; 
+  drawu(rstart: number, rend: number, rback: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void;
 }
 
-// Output of a draw operation for a term
 export interface DrawTermResult {
-  dimensions: TrompPoint; // (max_row_reached + 1, max_col_reached + 1) by this term and its children
-  leftoverConnection?: TrompPoint & { sourcePrimitiveName?: string }; // Connection point for parent (if any), carry tag if var from tagged lambda
+  dimensions: TrompPoint; 
+  leftoverConnection?: TrompPoint & { sourcePrimitiveName?: string }; 
 }

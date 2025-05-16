@@ -1,5 +1,5 @@
 
-import type { ASTNode, Variable, Lambda, Application } from '@/lib/lambda-calculus/types';
+import type { ASTNode, Variable, Lambda, Application, ASTNodeId } from '@/lib/lambda-calculus/types';
 import type { Grid, DrawTermResult, LambdaLinksMap, SvgElementData } from './tromp-types';
 import { NullGrid, SvgCollectingGrid } from './grid';
 
@@ -10,10 +10,11 @@ function drawNodeRecursive(
   toLeave: 'L' | 'R' | null,
   currentRow: number,
   currentCol: number,
-  parentPrimitiveName?: string // New parameter for context
+  parentPrimitiveName?: string,
+  highlightedRedexId?: ASTNodeId 
 ): DrawTermResult {
-  // Determine the effective primitive name for this node and its direct components
   const effectivePrimitiveName = term.sourcePrimitiveName || parentPrimitiveName;
+  const isCurrentTermRedex = term.id === highlightedRedexId;
 
   if (term.type === 'variable') {
     const varNode = term as Variable;
@@ -21,19 +22,9 @@ function drawNodeRecursive(
     const bindingInfo = lambdaLinks.get(varName);
 
     if (bindingInfo === undefined) {
-      // This can happen for free variables if the term is not closed.
-      // For visualization, we might draw them differently or just let it be.
-      // The original Python code implies ll[self.name] would raise an error if name not in ll.
-      // Let's assume closed terms for now, or handle free vars by giving them a default color/no line.
-      // For this coloring scheme, if it's free, it doesn't have a "primitive" binder.
-      // console.warn(`Tromp Diagram: Variable '${varName}' has no binding in lambdaLinks. It might be free.`);
-      // Fallback: draw a short stub or indicate it's free if needed.
-      // For now, let it attempt to draw from a hypothetical row 0 (might look odd or be off-screen)
-      // or color based on its own tag if variables could be tagged (they currently aren't directly).
-      const varLinePrimitiveName = term.sourcePrimitiveName || effectivePrimitiveName; // A variable itself might be a primitive `_X = x`
-
+      const varLinePrimitiveName = term.sourcePrimitiveName || effectivePrimitiveName; 
       if (toLeave === null) {
-        grid.drawv(bindingInfo?.row ?? currentRow - 0.5, currentRow, currentCol, varLinePrimitiveName); // Draw from current if no binding
+        grid.drawv(currentRow - 0.5, currentRow, currentCol, varLinePrimitiveName, isCurrentTermRedex);
         return {
             dimensions: { row: currentRow + 1, col: currentCol + 1 },
             leftoverConnection: undefined,
@@ -41,17 +32,15 @@ function drawNodeRecursive(
     } else {
         return {
             dimensions: { row: currentRow, col: currentCol + 1 },
-            leftoverConnection: { row: bindingInfo?.row ?? currentRow -0.5, col: currentCol, sourcePrimitiveName: varLinePrimitiveName },
+            leftoverConnection: { row: currentRow -0.5, col: currentCol, sourcePrimitiveName: varLinePrimitiveName },
         };
     }
     }
 
-    // The variable's line color should be determined by its binding's original primitive,
-    // or if not available (e.g. free var or untagged binder), use the current effectivePrimitiveName.
-    const varLinePrimitiveName = bindingInfo.sourcePrimitiveName || effectivePrimitiveName;
+    const varLinePrimitiveName = bindingInfo.sourcePrimitiveName || term.sourcePrimitiveName || effectivePrimitiveName;
 
     if (toLeave === null) {
-        grid.drawv(bindingInfo.row, currentRow, currentCol, varLinePrimitiveName);
+        grid.drawv(bindingInfo.row, currentRow, currentCol, varLinePrimitiveName, isCurrentTermRedex);
         return {
             dimensions: { row: currentRow + 1, col: currentCol + 1 },
             leftoverConnection: undefined,
@@ -59,17 +48,14 @@ function drawNodeRecursive(
     } else {
         return {
             dimensions: { row: currentRow, col: currentCol + 1 },
-            // The leftover connection's tag is crucial for the variable itself.
-            leftoverConnection: { row: bindingInfo.row, col: currentCol, sourcePrimitiveName: bindingInfo.sourcePrimitiveName || term.sourcePrimitiveName },
+            leftoverConnection: { row: bindingInfo.row, col: currentCol, sourcePrimitiveName: varLinePrimitiveName },
         };
     }
   } else if (term.type === 'application') {
     const appNode = term as Application;
 
-    // Propagate the current block's effectivePrimitiveName to children.
-    // If a child is a primitive itself, its term.sourcePrimitiveName will override this.
-    const leftResult = drawNodeRecursive(appNode.func, grid, lambdaLinks, 'R', currentRow, currentCol, effectivePrimitiveName);
-    const rightResult = drawNodeRecursive(appNode.arg, grid, lambdaLinks, 'L', currentRow, leftResult.dimensions.col, effectivePrimitiveName);
+    const leftResult = drawNodeRecursive(appNode.func, grid, lambdaLinks, 'R', currentRow, currentCol, effectivePrimitiveName, highlightedRedexId);
+    const rightResult = drawNodeRecursive(appNode.arg, grid, lambdaLinks, 'L', currentRow, leftResult.dimensions.col, effectivePrimitiveName, highlightedRedexId);
 
     if (!leftResult.leftoverConnection || !rightResult.leftoverConnection) {
         throw new Error("Application children did not return leftover connections as expected.");
@@ -82,23 +68,24 @@ function drawNodeRecursive(
     const contentMaxRow = Math.max(leftResult.dimensions.row, rightResult.dimensions.row);
     const bottomRowForHorizontalConnection = contentMaxRow;
     const finalCol = rightResult.dimensions.col;
+    
+    // The application's U-bar is highlighted if this application node is the redex
+    const highlightAppConnector = isCurrentTermRedex;
 
-    // Use effectivePrimitiveName for the application's structural lines (its own connectors)
     if (toLeave === 'L') {
-      grid.drawbl(r_over_r, bottomRowForHorizontalConnection, l_over_c, r_over_c, effectivePrimitiveName);
+      grid.drawbl(r_over_r, bottomRowForHorizontalConnection, l_over_c, r_over_c, effectivePrimitiveName, highlightAppConnector);
       return {
         dimensions: { row: bottomRowForHorizontalConnection + 1, col: finalCol },
-        // Leftover's sourcePrimitiveName should come from the actual structure (leftResult for 'L')
         leftoverConnection: { row: l_over_r, col: l_over_c, sourcePrimitiveName: leftResult.leftoverConnection.sourcePrimitiveName },
       };
     } else if (toLeave === 'R') {
-      grid.drawfl(l_over_r, bottomRowForHorizontalConnection, l_over_c, r_over_c, effectivePrimitiveName);
+      grid.drawfl(l_over_r, bottomRowForHorizontalConnection, l_over_c, r_over_c, effectivePrimitiveName, highlightAppConnector);
       return {
         dimensions: { row: bottomRowForHorizontalConnection + 1, col: finalCol },
         leftoverConnection: { row: r_over_r, col: r_over_c, sourcePrimitiveName: rightResult.leftoverConnection.sourcePrimitiveName },
       };
-    } else { // toLeave === null
-      grid.drawu(l_over_r, bottomRowForHorizontalConnection, r_over_r, l_over_c, r_over_c, effectivePrimitiveName);
+    } else { 
+      grid.drawu(l_over_r, bottomRowForHorizontalConnection, r_over_r, l_over_c, r_over_c, effectivePrimitiveName, highlightAppConnector);
       return {
         dimensions: { row: bottomRowForHorizontalConnection + 1, col: finalCol },
         leftoverConnection: undefined,
@@ -109,10 +96,8 @@ function drawNodeRecursive(
     const varName = lambdaNode.param;
     const oldBindingInfo = lambdaLinks.get(varName);
 
-    // The binding info should carry this lambda's effectivePrimitiveName.
     lambdaLinks.set(varName, {row: currentRow, sourcePrimitiveName: effectivePrimitiveName});
 
-    // Propagate this lambda's effectivePrimitiveName as the parent context for its body.
     const bodyResult = drawNodeRecursive(
       lambdaNode.body,
       grid,
@@ -120,7 +105,8 @@ function drawNodeRecursive(
       toLeave,
       currentRow + 1,
       currentCol,
-      effectivePrimitiveName
+      effectivePrimitiveName,
+      highlightedRedexId
     );
 
     if (oldBindingInfo !== undefined) {
@@ -128,11 +114,13 @@ function drawNodeRecursive(
     } else {
       lambdaLinks.delete(varName);
     }
+    
+    // Lambda bar is highlighted if this lambda is part of the redex (e.g. the function part of an application redex)
+    // This exact logic might need refinement if we want to distinguish lambda itself vs. it being part of a redex application.
+    // For now, let's assume if the lambda's term ID is highlighted, its bar is too.
+    const highlightLambdaBar = isCurrentTermRedex; 
+    grid.drawl(currentRow, currentCol, bodyResult.dimensions.col - 1, varName, effectivePrimitiveName, highlightLambdaBar);
 
-    // The lambda bar uses its own effectivePrimitiveName
-    grid.drawl(currentRow, currentCol, bodyResult.dimensions.col - 1, varName, effectivePrimitiveName);
-
-    // Leftover's sourcePrimitiveName comes from the body's result
     return {
       dimensions: { row: bodyResult.dimensions.row, col: bodyResult.dimensions.col },
       leftoverConnection: bodyResult.leftoverConnection,
@@ -153,7 +141,8 @@ export interface TrompDiagramRenderData {
 
 export function generateTrompDiagramData(
   term: ASTNode | null,
-  scale: number = 20
+  scale: number = 20,
+  highlightedRedexId?: ASTNodeId 
 ): TrompDiagramRenderData | null {
   if (!term) {
     return null;
@@ -163,21 +152,18 @@ export function generateTrompDiagramData(
 
   const nullGrid = new NullGrid();
   const firstPassLambdaLinks: LambdaLinksMap = new Map(initialLambdaLinks);
-  // Pass term.sourcePrimitiveName as the initial parentPrimitiveName context
-  const dimResult = drawNodeRecursive(term, nullGrid, firstPassLambdaLinks, null, 0, 0, term.sourcePrimitiveName);
+  const dimResult = drawNodeRecursive(term, nullGrid, firstPassLambdaLinks, null, 0, 0, term.sourcePrimitiveName, highlightedRedexId);
 
-  if (dimResult.leftoverConnection && term.type !== 'variable') { // A single variable term is expected to have a leftover
+  if (dimResult.leftoverConnection && term.type !== 'variable') { 
      console.warn("Tromp Diagram: Top-level expression (not a var) returned a leftover connection.", term, dimResult.leftoverConnection);
   }
-
 
   const gridHeight = Math.max(1, dimResult.dimensions.row);
   const gridWidth = Math.max(1, dimResult.dimensions.col);
 
   const svgGrid = new SvgCollectingGrid(scale);
   const secondPassLambdaLinks: LambdaLinksMap = new Map(initialLambdaLinks);
-  // Pass term.sourcePrimitiveName as the initial parentPrimitiveName context for the actual drawing pass
-  drawNodeRecursive(term, svgGrid, secondPassLambdaLinks, null, 0, 0, term.sourcePrimitiveName);
+  drawNodeRecursive(term, svgGrid, secondPassLambdaLinks, null, 0, 0, term.sourcePrimitiveName, highlightedRedexId);
 
   return {
     svgElements: svgGrid.svgElements,
@@ -188,4 +174,3 @@ export function generateTrompDiagramData(
     viewBox: `0 0 ${gridWidth} ${gridHeight}`,
   };
 }
-

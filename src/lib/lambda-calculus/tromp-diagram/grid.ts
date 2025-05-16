@@ -4,17 +4,17 @@ import type { Grid, SvgElementData } from './tromp-types';
 let elementKeyCounter = 0;
 
 export class NullGrid implements Grid {
-  drawl(r: number, cstart: number, cend: number, name?: string, sourcePrimitiveName?: string): void {}
-  drawv(rstart: number, rend: number, c: number, sourcePrimitiveName?: string): void {}
-  drawfl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string): void {}
-  drawbl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string): void {}
-  drawu(rstart: number, rend: number, rback: number, cstart: number, cend: number, sourcePrimitiveName?: string): void {}
+  drawl(r: number, cstart: number, cend: number, name?: string, sourcePrimitiveName?: string, isHighlighted?: boolean): void {}
+  drawv(rstart: number, rend: number, c: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void {}
+  drawfl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void {}
+  drawbl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void {}
+  drawu(rstart: number, rend: number, rback: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void {}
 }
 
 export class SvgCollectingGrid implements Grid {
   public svgElements: SvgElementData[] = [];
 
-  constructor(scale: number) { // scale not directly used here but kept for API consistency
+  constructor(scale: number) { 
     elementKeyCounter = 0; 
   }
 
@@ -22,7 +22,7 @@ export class SvgCollectingGrid implements Grid {
     return `tromp-elem-${elementKeyCounter++}`;
   }
 
-  drawl(r: number, cstart: number, cend: number, name?: string, sourcePrimitiveName?: string): void {
+  drawl(r: number, cstart: number, cend: number, name?: string, sourcePrimitiveName?: string, isHighlighted?: boolean): void {
     let line_cstart = cstart - 1/3;
     let line_cend = cend + 1/3;
     
@@ -40,10 +40,11 @@ export class SvgCollectingGrid implements Grid {
       y2: r,
       title: name,
       sourcePrimitiveName,
+      isHighlighted,
     });
   }
 
-  drawv(rstart: number, rend: number, c: number, sourcePrimitiveName?: string): void {
+  drawv(rstart: number, rend: number, c: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void {
     this.svgElements.push({
       type: 'line',
       key: this.nextKey(),
@@ -52,33 +53,37 @@ export class SvgCollectingGrid implements Grid {
       x2: c,
       y2: rend,
       sourcePrimitiveName,
+      isHighlighted,
     });
   }
 
-  drawfl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string): void { 
+  drawfl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void { 
     this.svgElements.push({
       type: 'polyline',
       key: this.nextKey(),
       points: `${cstart},${rstart} ${cstart},${rend} ${cend},${rend}`,
       sourcePrimitiveName,
+      isHighlighted,
     });
   }
 
-  drawbl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string): void { 
+  drawbl(rstart: number, rend: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void { 
     this.svgElements.push({
       type: 'polyline',
       key: this.nextKey(),
       points: `${cstart},${rend} ${cend},${rend} ${cend},${rstart}`,
       sourcePrimitiveName,
+      isHighlighted,
     });
   }
 
-  drawu(rstart: number, rend: number, rback: number, cstart: number, cend: number, sourcePrimitiveName?: string): void { 
+  drawu(rstart: number, rend: number, rback: number, cstart: number, cend: number, sourcePrimitiveName?: string, isHighlighted?: boolean): void { 
     this.svgElements.push({
       type: 'polyline',
       key: this.nextKey(),
       points: `${cstart},${rstart} ${cstart},${rend} ${cend},${rend} ${cend},${rback}`,
       sourcePrimitiveName,
+      isHighlighted,
     });
   }
 }

@@ -4,13 +4,11 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useLambda } from '@/contexts/LambdaContext';
 import { generateTrompDiagramData, TrompDiagramRenderData } from '@/lib/lambda-calculus/tromp-diagram/renderer';
 import type { SvgElementData } from '@/lib/lambda-calculus/tromp-diagram/tromp-types';
+import type { ASTNodeId } from '@/lib/lambda-calculus/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, Info } from 'lucide-react';
-// Slider and Label are removed as we are implementing auto-scaling
-// import { Slider } from "@/components/ui/slider";
-// import { Label } from "@/components/ui/label";
 
 const primitiveColors: Record<string, string> = {
   "_0": "hsl(var(--ast-variable-bg))",
@@ -41,15 +39,18 @@ function getPrimitiveColor(primitiveName?: string): string | undefined {
     return undefined;
 }
 
+const HIGHLIGHT_COLOR = "hsl(var(--ast-highlight-bg))";
+const DEFAULT_STROKE_COLOR = "hsl(var(--foreground))";
+
 export function TrompDiagramVisualizer() {
-  const { currentAST, isLoading: contextIsLoading, error: contextError } = useLambda();
+  const { currentAST, isLoading: contextIsLoading, error: contextError, highlightedRedexId } = useLambda();
   const [diagramData, setDiagramData] = useState<TrompDiagramRenderData | null>(null);
   const [internalLoading, setInternalLoading] = useState(false);
   const [internalError, setInternalError] = useState<string | null>(null);
   
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
-  const [autoScale, setAutoScale] = useState<number>(10); // Initial sensible default
+  const [autoScale, setAutoScale] = useState<number>(10);
 
   useEffect(() => {
     const currentContainer = containerRef.current;
@@ -62,7 +63,6 @@ export function TrompDiagramVisualizer() {
     });
 
     resizeObserver.observe(currentContainer);
-    // Set initial size
     const { width, height } = currentContainer.getBoundingClientRect();
     setContainerSize({ width, height });
     
@@ -73,28 +73,26 @@ export function TrompDiagramVisualizer() {
     if (currentAST && containerSize.width > 0 && containerSize.height > 0) {
       setInternalLoading(true);
       setInternalError(null);
-      // requestAnimationFrame not strictly necessary here, but can be kept if complex calcs were added
       try {
-        // First pass to get grid units (scale = 1 for this)
-        const initialDiagramData = generateTrompDiagramData(currentAST, 1);
+        const initialDiagramData = generateTrompDiagramData(currentAST, 1, highlightedRedexId);
 
         if (!initialDiagramData || initialDiagramData.widthInGridUnits <= 0 || initialDiagramData.heightInGridUnits <= 0) {
           setDiagramData(initialDiagramData); 
           setInternalLoading(false);
-          setAutoScale(10); // Reset to default on empty/error
+          setAutoScale(10);
           return;
         }
 
         const { widthInGridUnits, heightInGridUnits } = initialDiagramData;
         
-        const padding = 0.90; // 90% of available space, 5% padding on each side
+        const padding = 0.90;
         const scaleX = (containerSize.width * padding) / widthInGridUnits;
         const scaleY = (containerSize.height * padding) / heightInGridUnits;
         const calculatedScale = Math.max(1, Math.min(scaleX, scaleY)); 
 
         setAutoScale(calculatedScale);
 
-        const finalDiagramData = generateTrompDiagramData(currentAST, calculatedScale);
+        const finalDiagramData = generateTrompDiagramData(currentAST, calculatedScale, highlightedRedexId);
         setDiagramData(finalDiagramData);
 
       } catch (e: any) {
@@ -107,23 +105,26 @@ export function TrompDiagramVisualizer() {
     } else if (!currentAST) {
       setDiagramData(null);
       setInternalError(null);
-      setAutoScale(10); // Reset scale
+      setAutoScale(10);
     }
-  }, [currentAST, containerSize]); // Rerun when AST or container size changes
+  }, [currentAST, containerSize, highlightedRedexId]);
 
   const isLoading = contextIsLoading || internalLoading;
   const error = contextError || internalError;
 
   const memoizedSvgElements = useMemo(() => {
     if (!diagramData) return [];
-    // Stroke width in viewBox units. Aims for ~1px visual thickness.
-    // Min 0.02 to prevent it from disappearing if autoScale is huge.
     const strokeW = Math.max(0.02, 1 / autoScale); 
+    const highlightedStrokeW = Math.max(0.04, 2 / autoScale);
+
     return diagramData.svgElements.map((el: SvgElementData) => {
-      const color = getPrimitiveColor(el.sourcePrimitiveName) || "hsl(var(--foreground))";
+      const baseColor = getPrimitiveColor(el.sourcePrimitiveName) || DEFAULT_STROKE_COLOR;
+      const strokeColor = el.isHighlighted ? HIGHLIGHT_COLOR : baseColor;
+      const currentStrokeWidth = el.isHighlighted ? highlightedStrokeW : strokeW;
+      
       const commonProps = {
-        stroke: color, 
-        strokeWidth: strokeW,
+        stroke: strokeColor, 
+        strokeWidth: currentStrokeWidth,
         fill: "none",
       };
       if (el.type === 'line') {
@@ -161,7 +162,6 @@ export function TrompDiagramVisualizer() {
     <Card className="h-full flex flex-col">
       <CardHeader className="flex flex-row items-center justify-between pb-2 pt-4 shrink-0">
         <CardTitle className="text-xl font-semibold">Tromp Diagram</CardTitle>
-        {/* Scale slider and label removed */}
       </CardHeader>
       <CardContent ref={containerRef} className="flex-grow overflow-hidden p-0">
         <ScrollArea className="h-full w-full" viewportClassName="flex items-center justify-center">
@@ -193,7 +193,7 @@ export function TrompDiagramVisualizer() {
           )}
           {diagramData && diagramData.svgElements.length > 0 && (
             <svg
-              key={currentAST?.id} // Key for fade-in animation trigger
+              key={`${currentAST?.id}-${highlightedRedexId || 'no-highlight'}`} 
               width={diagramData.actualWidthPx}
               height={diagramData.actualHeightPx}
               viewBox={diagramData.viewBox}
