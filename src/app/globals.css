@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -54,6 +55,13 @@ code, pre, .font-mono {
   body {
     @apply bg-background text-foreground;
   }
+  /* Enhanced styling for code blocks in help text */
+  .help-content code {
+    @apply bg-muted text-muted-foreground font-mono text-sm px-1 py-0.5 rounded-sm border border-border;
+  }
+  .help-content pre code { /* For multi-line code blocks if used */
+    @apply block p-2 whitespace-pre-wrap;
+  }
 }
 
 /* Animation for AST node changes */
@@ -74,4 +82,13 @@ code, pre, .font-mono {
 
 .animate-highlightPulse {
   animation: highlightPulse 1s ease-out;
+}
+
+/* Animation for Tromp Diagram updates */
+@keyframes trompDiagramFadeIn {
+  from { opacity: 0.3; }
+  to { opacity: 1; }
+}
+.animate-trompDiagramFadeIn {
+  animation: trompDiagramFadeIn 0.4s ease-in-out;
 }
