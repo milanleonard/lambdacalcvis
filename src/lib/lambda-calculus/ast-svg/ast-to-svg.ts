@@ -6,11 +6,11 @@ import { generateSvgNodeId } from './ast-svg-types';
 // --- Configuration Constants for Layout ---
 const MIN_NODE_WIDTH = 30;
 const NODE_HEIGHT = 40;
-const HORIZONTAL_SPACING = 20;
-const VERTICAL_SPACING = 50;
+const HORIZONTAL_SPACING = 25; // Increased slightly
+const VERTICAL_SPACING = 55;   // Increased slightly
 const TEXT_PADDING = 5;
-const CHAR_WIDTH_ESTIMATE = 8; // Approximate width of a character
-const INITIAL_PADDING = 20; // Padding around the entire drawing
+const CHAR_WIDTH_ESTIMATE = 8; 
+const INITIAL_PADDING = 20; 
 
 interface LayoutContext {
   svgNodes: SvgAstNode[];
@@ -27,16 +27,14 @@ function initializeLayoutContext(highlightedRedexId?: string): LayoutContext {
 }
 
 interface ProcessedSubtree {
-  centerX: number;
-  y: number;
-  width: number;
-  height: number;
-  svgId: string;
-  rootNodeX: number; // The x-coordinate of the root SVG node of this subtree, relative to its layout block's origin.
+  centerX: number; // The x-coordinate of the conceptual center of this subtree (for parent alignment)
+  y: number;       // The y-coordinate of the root node of this subtree
+  width: number;   // The total width of this subtree
+  height: number;  // The total height of this subtree
+  svgId: string;   // The SVG ID of the root node of this subtree
 }
 
 // Shifts all nodes within a subtree by deltaX and deltaY.
-// This function now ONLY modifies node.x and node.y. Connector paths are handled later.
 function shiftSubtree(ctx: LayoutContext, rootSvgIdToShift: string, deltaX: number, deltaY: number = 0) {
   const nodesToShiftSet: Set<string> = new Set();
   const q: string[] = [rootSvgIdToShift];
@@ -67,7 +65,7 @@ function shiftSubtree(ctx: LayoutContext, rootSvgIdToShift: string, deltaX: numb
 function layoutNodeRecursive(
   astNode: ASTNode,
   ctx: LayoutContext,
-  targetY: number
+  targetY: number // Target Y for the current node's symbol
 ): ProcessedSubtree {
   const svgId = generateSvgNodeId(astNode.type);
   const isHighlighted = astNode.id === ctx.highlightedRedexId || astNode.isRedex;
@@ -88,33 +86,39 @@ function layoutNodeRecursive(
     ctx.svgNodes.push(createdNode);
 
     currentProcessedSubtree = {
-      centerX: nodeOwnWidth / 2,
+      centerX: nodeOwnWidth / 2, // Centered within its own box
       y: targetY,
       width: nodeOwnWidth,
       height: nodeOwnHeight,
       svgId: svgId,
-      rootNodeX: 0,
     };
   } else if (astNode.type === 'lambda') {
     const lambdaNode = astNode as Lambda;
     const textContent = `λ${lambdaNode.param}.`;
     nodeOwnWidth = Math.max(MIN_NODE_WIDTH, textContent.length * CHAR_WIDTH_ESTIMATE + 2 * TEXT_PADDING);
 
+    // Layout the body first, starting at targetY + nodeOwnHeight + VERTICAL_SPACING
     const bodyLayout = layoutNodeRecursive(lambdaNode.body, ctx, targetY + nodeOwnHeight + VERTICAL_SPACING);
     
-    const overallWidth = Math.max(nodeOwnWidth, bodyLayout.width);
-    const lambdaSymbolX = (overallWidth / 2) - (nodeOwnWidth / 2);
-    const bodyRelativeX = (overallWidth / 2) - (bodyLayout.centerX);
-    
+    // Position the lambda symbol: its center should align with the body's center.
+    // The lambda symbol's X will be bodyLayout.centerX - (nodeOwnWidth / 2)
+    // (relative to the body's conceptual origin, before shifting the body)
+    const lambdaSymbolX = bodyLayout.centerX - (nodeOwnWidth / 2);
+
+    // Shift the body subtree so its root node's x-coordinate is correct relative to lambdaSymbolX
+    // bodyNodeInCtx.x is initially 0 for its own layout block. We want its centerX to be under lambdaSymbolX's center.
+    const bodyNodeInCtx = ctx.svgNodes.find(n => n.svgId === bodyLayout.svgId)!;
+    // shiftSubtree(ctx, bodyLayout.svgId, lambdaSymbolX + nodeOwnWidth / 2 - (bodyNodeInCtx.x + bodyLayout.width / 2) );
+    // To align centers: shift body so (bodyNode.x + bodyLayout.centerX) == (lambdaSymbolX + nodeOwnWidth / 2)
+    shiftSubtree(ctx, bodyLayout.svgId, (lambdaSymbolX + nodeOwnWidth / 2) - (bodyNodeInCtx.x + bodyLayout.centerX));
+
+
     const createdNode: SvgAstNode = {
       id: astNode.id, svgId, type: 'lambda', param: lambdaNode.param,
       x: lambdaSymbolX, y: targetY, width: nodeOwnWidth, height: nodeOwnHeight,
       isHighlighted, sourcePrimitiveName: astNode.sourcePrimitiveName
     };
     ctx.svgNodes.push(createdNode);
-
-    const bodyNodeInCtx = ctx.svgNodes.find(n => n.svgId === bodyLayout.svgId)!;
-    shiftSubtree(ctx, bodyLayout.svgId, bodyRelativeX - bodyNodeInCtx.x);
 
     ctx.svgConnectors.push({
       id: generateSvgNodeId('connector-lambda'),
@@ -125,28 +129,36 @@ function layoutNodeRecursive(
     });
 
     currentProcessedSubtree = {
-      centerX: lambdaSymbolX + nodeOwnWidth / 2,
+      centerX: lambdaSymbolX + nodeOwnWidth / 2, // Center of the lambda symbol itself
       y: targetY,
-      width: overallWidth,
+      width: Math.max(nodeOwnWidth, bodyLayout.width), // Width is max of symbol or body's extent
       height: nodeOwnHeight + VERTICAL_SPACING + bodyLayout.height,
       svgId: svgId,
-      rootNodeX: lambdaSymbolX,
     };
+
   } else { // Application
     const appNode = astNode as Application;
     nodeOwnWidth = Math.max(MIN_NODE_WIDTH, ('@').length * CHAR_WIDTH_ESTIMATE + 2 * TEXT_PADDING);
 
+    // Layout children first
     const funcLayout = layoutNodeRecursive(appNode.func, ctx, targetY + nodeOwnHeight + VERTICAL_SPACING);
     const argLayout = layoutNodeRecursive(appNode.arg, ctx, targetY + nodeOwnHeight + VERTICAL_SPACING);
 
     const funcNodeInCtx = ctx.svgNodes.find(n => n.svgId === funcLayout.svgId)!;
     const argNodeInCtx = ctx.svgNodes.find(n => n.svgId === argLayout.svgId)!;
     
-    const funcRelativeX = 0;
-    const argRelativeX = funcLayout.width + HORIZONTAL_SPACING;
-    const childrenSpanWidth = funcLayout.width + HORIZONTAL_SPACING + argLayout.width;
-    const appSymbolX = (childrenSpanWidth / 2) - (nodeOwnWidth / 2);
+    // Position func subtree starting at x=0 (relative to this application's block)
+    // Its original funcNodeInCtx.x was 0 for its own layout. Its centerX is funcLayout.centerX.
+    // We want its x to be (0 - funcNodeInCtx.x) which is 0. And its conceptual center is funcLayout.centerX.
+    shiftSubtree(ctx, funcLayout.svgId, 0 - funcNodeInCtx.x); // funcNodeInCtx.x is likely 0 already.
+    
+    // Position arg subtree to the right of func subtree
+    const argTargetX = funcLayout.width + HORIZONTAL_SPACING;
+    shiftSubtree(ctx, argLayout.svgId, argTargetX - argNodeInCtx.x);
 
+    // Position the '@' symbol centered above the 'func' part
+    const appSymbolX = funcLayout.centerX - (nodeOwnWidth / 2);
+    
     const createdNode: SvgAstNode = {
       id: astNode.id, svgId, type: 'application',
       x: appSymbolX, y: targetY, width: nodeOwnWidth, height: nodeOwnHeight,
@@ -154,31 +166,27 @@ function layoutNodeRecursive(
     };
     ctx.svgNodes.push(createdNode);
 
-    shiftSubtree(ctx, funcLayout.svgId, funcRelativeX - funcNodeInCtx.x);
-    shiftSubtree(ctx, argLayout.svgId, argRelativeX - argNodeInCtx.x);
-
     ctx.svgConnectors.push({
       id: generateSvgNodeId('connector-func'),
       fromSvgId: svgId,
-      toSvgId: funcLayout.svgId,
-      pathD: '', // Will be calculated later
+      toSvgId: funcLayout.svgId, // Connect to func's root
+      pathD: '', 
       isHighlighted: isHighlighted && (astNode.func.isRedex || astNode.func.id === ctx.highlightedRedexId),
     });
     ctx.svgConnectors.push({
       id: generateSvgNodeId('connector-arg'),
       fromSvgId: svgId,
-      toSvgId: argLayout.svgId,
-      pathD: '', // Will be calculated later
+      toSvgId: argLayout.svgId, // Connect to arg's root
+      pathD: '', 
       isHighlighted: isHighlighted && (astNode.arg.isRedex || astNode.arg.id === ctx.highlightedRedexId),
     });
-
+    
     currentProcessedSubtree = {
-      centerX: appSymbolX + nodeOwnWidth / 2,
+      centerX: appSymbolX + nodeOwnWidth / 2, // Center of the '@' symbol, biased to func
       y: targetY,
-      width: childrenSpanWidth,
+      width: argTargetX + argLayout.width, // Total width spanned
       height: nodeOwnHeight + VERTICAL_SPACING + Math.max(funcLayout.height, argLayout.height),
       svgId: svgId,
-      rootNodeX: appSymbolX,
     };
   }
   return currentProcessedSubtree;
@@ -196,19 +204,21 @@ export function generateAstSvgData(
   const ctx = initializeLayoutContext(highlightedRedexId);
 
   try {
+    // Initial layout pass. Nodes are positioned relative to their local subtree's origin.
+    // The root of the whole tree will start effectively at (0,0) for its block.
     layoutNodeRecursive(astNode, ctx, 0);
 
-    // After all recursive layout and shifting, calculate final pathD for connectors
-    // using the current node positions (which are relative to the tree's (0,0) origin).
+    // After all recursive layout and shifting within subtrees,
+    // calculate final pathD for connectors using the current node positions.
     ctx.svgConnectors.forEach(connector => {
       const fromNode = ctx.svgNodes.find(n => n.svgId === connector.fromSvgId);
       const toNode = ctx.svgNodes.find(n => n.svgId === connector.toSvgId);
 
       if (fromNode && toNode) {
           const startX = fromNode.x + fromNode.width / 2;
-          const startY = fromNode.y + fromNode.height;
+          const startY = fromNode.y + fromNode.height; // Bottom-center of parent
           const endX = toNode.x + toNode.width / 2;
-          const endY = toNode.y;
+          const endY = toNode.y;                 // Top-center of child
           connector.pathD = `M ${startX} ${startY} L ${endX} ${endY}`;
       } else {
           console.warn("generateAstSvgData: Could not find nodes for connector:", connector.id, connector.fromSvgId, connector.toSvgId);
@@ -216,6 +226,7 @@ export function generateAstSvgData(
       }
     });
 
+    // Normalize all coordinates to be positive and add padding for canvas.
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
 
     if (ctx.svgNodes.length === 0) {
@@ -225,13 +236,11 @@ export function generateAstSvgData(
     ctx.svgNodes.forEach(node => {
       minX = Math.min(minX, node.x);
       maxX = Math.max(maxX, node.x + node.width);
-      minY = Math.min(minY, node.y);
+      minY = Math.min(minY, node.y); // minY is already 0 due to initial targetY=0
       maxY = Math.max(maxY, node.y + node.height);
     });
     
-    // Include connector points in min/max calculation in case they extend beyond nodes
-    // This is less likely now that paths are drawn between node centers/edges
-    // but good for robustness if path logic changes later.
+    // Include connector points in min/max calculation
     ctx.svgConnectors.forEach(connector => {
         const parts = connector.pathD.match(/M\s*([-\d.eE]+)\s*([-\d.eE]+)\s*L\s*([-\d.eE]+)\s*([-\d.eE]+)/);
         if (parts && parts.length === 5) {
@@ -248,7 +257,8 @@ export function generateAstSvgData(
 
 
     const shiftX = (minX === Infinity || minX === maxX) ? INITIAL_PADDING : -minX + INITIAL_PADDING;
-    const shiftY = (minY === Infinity || minY === maxY) ? INITIAL_PADDING : -minY + INITIAL_PADDING;
+    // minY should be 0 from the layout, so shiftY mainly adds top padding.
+    const shiftY = (minY === Infinity || minY === maxY) ? INITIAL_PADDING : -minY + INITIAL_PADDING; 
 
 
     ctx.svgNodes.forEach(node => {
@@ -267,14 +277,18 @@ export function generateAstSvgData(
       }
     });
     
-    const finalCanvasWidth = (maxX === -Infinity || minX === maxX) ? (ctx.svgNodes[0]?.width || 0) + 2 * INITIAL_PADDING : (maxX - minX) + 2 * INITIAL_PADDING;
-    const finalCanvasHeight = (maxY === -Infinity || minY === maxY) ? (ctx.svgNodes[0]?.height || 0) + 2 * INITIAL_PADDING : (maxY - minY) + 2 * INITIAL_PADDING;
+    const finalCanvasWidth = (maxX === -Infinity || minX === maxX) 
+        ? (ctx.svgNodes[0]?.width || 0) + 2 * INITIAL_PADDING 
+        : (maxX - minX) + 2 * INITIAL_PADDING;
+    const finalCanvasHeight = (maxY === -Infinity || minY === maxY) 
+        ? (ctx.svgNodes[0]?.height || 0) + 2 * INITIAL_PADDING 
+        : (maxY - minY) + 2 * INITIAL_PADDING;
 
 
     return {
       nodes: ctx.svgNodes,
       connectors: ctx.svgConnectors,
-      canvasWidth: Math.max(200, finalCanvasWidth),
+      canvasWidth: Math.max(200, finalCanvasWidth), // Ensure a minimum canvas size
       canvasHeight: Math.max(100, finalCanvasHeight),
     };
   } catch (error: any) {
@@ -288,4 +302,3 @@ export function generateAstSvgData(
     };
   }
 }
-
