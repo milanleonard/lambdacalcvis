@@ -77,7 +77,6 @@ export function ExperimentalTrompDiagram() {
       setInternalLoading(true);
       setInternalError(null);
       try {
-        // Pass highlightedRedexId for potential use in animation logic later
         const initialDiagramData = generateTrompDiagramData(currentAST, 1, highlightedRedexId);
 
         if (!initialDiagramData || initialDiagramData.widthInGridUnits <= 0 || initialDiagramData.heightInGridUnits <= 0) {
@@ -117,29 +116,32 @@ export function ExperimentalTrompDiagram() {
   const isLoading = contextIsLoading || internalLoading;
   const error = contextError || internalError;
 
-  const memoizedSvgElements = useMemo(() => {
-    if (!diagramData) return [];
-    
-    const baseStrokeW = Math.max(0.02, 1 / autoScale); 
+  const { argumentElementsJsx, otherElementsJsx } = useMemo(() => {
+    if (!diagramData || !diagramData.svgElements) {
+      return { argumentElementsJsx: [], otherElementsJsx: [] };
+    }
+
+    const baseStrokeW = Math.max(0.02, 1 / autoScale);
     const highlightedStrokeW = Math.max(0.04, 2 / autoScale);
 
-    return diagramData.svgElements.map((el: SvgElementData) => {
+    const renderElementToJsx = (el: SvgElementData) => {
       let strokeColor = getPrimitiveColor(el.sourcePrimitiveName) || DEFAULT_STROKE_COLOR;
       let currentStrokeWidth = baseStrokeW;
 
-      if (el.isHighlighted) { // Redex application U-bar
+      if (el.isHighlighted) {
         strokeColor = HIGHLIGHT_COLOR;
         currentStrokeWidth = highlightedStrokeW;
-      } else if (el.isSecondaryHighlight) { // Redex argument parts
+      } else if (el.isSecondaryHighlight) {
         strokeColor = SECONDARY_HIGHLIGHT_COLOR;
-        currentStrokeWidth = highlightedStrokeW * 0.8; 
+        currentStrokeWidth = highlightedStrokeW * 0.8;
       }
-      
+
       const commonProps = {
-        stroke: strokeColor, 
+        stroke: strokeColor,
         strokeWidth: currentStrokeWidth,
         fill: "none",
       };
+
       if (el.type === 'line') {
         return (
           <line
@@ -161,12 +163,28 @@ export function ExperimentalTrompDiagram() {
             points={el.points}
             {...commonProps}
           >
-             {el.sourcePrimitiveName && <title>Primitive: {el.sourcePrimitiveName}</title>}
+            {el.sourcePrimitiveName && <title>Primitive: {el.sourcePrimitiveName}</title>}
           </polyline>
         );
       }
       return null;
+    };
+
+    const argJsx: JSX.Element[] = [];
+    const otherJsx: JSX.Element[] = [];
+
+    diagramData.svgElements.forEach((el) => {
+      const jsxEl = renderElementToJsx(el);
+      if (jsxEl) {
+        if (el.isSecondaryHighlight) {
+          argJsx.push(jsxEl);
+        } else {
+          otherJsx.push(jsxEl);
+        }
+      }
     });
+
+    return { argumentElementsJsx: argJsx, otherElementsJsx: otherJsx };
   }, [diagramData, autoScale]);
 
 
@@ -217,7 +235,12 @@ export function ExperimentalTrompDiagram() {
               preserveAspectRatio="xMidYMid meet" 
             >
               <g transform="translate(0.5 0.5)"> 
-                {memoizedSvgElements}
+                {otherElementsJsx}
+                {argumentElementsJsx.length > 0 && (
+                  <g id="redex-argument-block-group">
+                    {argumentElementsJsx}
+                  </g>
+                )}
               </g>
             </svg>
           )}
@@ -233,3 +256,4 @@ export function ExperimentalTrompDiagram() {
     </Card>
   );
 }
+
