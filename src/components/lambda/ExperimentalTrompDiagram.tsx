@@ -8,7 +8,8 @@ import type { ASTNodeId } from '@/lib/lambda-calculus/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlertTriangle, Info, Beaker } from 'lucide-react'; // Added Beaker
+import { AlertTriangle, Info, Beaker } from 'lucide-react'; 
+import { cn } from '@/lib/utils';
 
 // Colors and helpers (copied from TrompDiagramVisualizer)
 const primitiveColors: Record<string, string> = {
@@ -237,7 +238,11 @@ export function ExperimentalTrompDiagram() {
               <g transform="translate(0.5 0.5)"> 
                 {otherElementsJsx}
                 {argumentElementsJsx.length > 0 && (
-                  <g id="redex-argument-block-group">
+                  <g 
+                    id="redex-argument-block-group" 
+                    key={`arg-group-${currentAST?.id}-${highlightedRedexId || 'no-arg'}`}
+                    className={cn(argumentElementsJsx.length > 0 && "animate-argumentPopIn")}
+                  >
                     {argumentElementsJsx}
                   </g>
                 )}
