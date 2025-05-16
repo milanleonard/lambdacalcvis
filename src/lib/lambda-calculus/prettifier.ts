@@ -25,8 +25,6 @@ function getProcessedNamedTerms(
       const printed = print(ast, 'top'); // Get canonical form for matching
 
       // Filter out very simple terms or those whose printed form is trivial (e.g. just a variable name).
-      // A simple heuristic: printed form should likely contain 'L', '(', or be longer than a typical var name.
-      // This aims to prevent replacing "x" with "_MY_X_VAR" if _MY_X_VAR was defined as "x".
       const isComplexEnough = printed.includes('λ') || printed.includes('(') || printed.length > 5;
       const isNotJustAVariable = ast.type !== 'variable';
 
@@ -39,7 +37,6 @@ function getProcessedNamedTerms(
         });
       } else if (printed.length > 0 && expr.name.match(/^([0-9]+|TRUE|FALSE)$/i)) { 
         // Allow specific simple predefined terms like numbers (0,1,2,3) or booleans.
-        // Note: ZERO, ONE, etc. were changed to "0", "1" in predefined.ts
          processedTerms.push({
           name: expr.name,
           lambda: expr.lambda,
@@ -58,6 +55,47 @@ function getProcessedNamedTerms(
   return processedTerms;
 }
 
+// Tries to interpret an ASTNode as a Church numeral.
+// Returns the numeral value (e.g., 0, 1, 15) or null if it's not a Church numeral.
+function tryGetChurchNumeralValue(node: ASTNode): number | null {
+  if (node.type !== 'lambda') return null;
+  const lambdaF = node;
+
+  if (lambdaF.body.type !== 'lambda') return null;
+  const lambdaX = lambdaF.body;
+
+  const fParamName = lambdaF.param;
+  const xParamName = lambdaX.param;
+
+  let currentBody = lambdaX.body;
+  let count = 0;
+
+  // Max count to prevent infinite loops on malformed structures or very large N
+  const MAX_CHURCH_APPLICATIONS = 200; 
+
+  while (count <= MAX_CHURCH_APPLICATIONS) {
+    if (currentBody.type === 'variable' && currentBody.name === xParamName) {
+      // Reached the innermost 'x'
+      return count;
+    }
+    if (
+      currentBody.type === 'application' &&
+      currentBody.func.type === 'variable' &&
+      currentBody.func.name === fParamName
+    ) {
+      // It's an application of 'f'
+      count++;
+      currentBody = currentBody.arg; // Move to the argument of 'f'
+    } else {
+      // Structure does not match f(...), so not a simple Church numeral
+      return null;
+    }
+  }
+  // Exceeded max applications, likely not a Church numeral or too large to prettify this way
+  return null; 
+}
+
+
 export function prettifyAST(
   node: ASTNode | null,
   customExpressions: NamedExpression[],
@@ -67,7 +105,14 @@ export function prettifyAST(
     return "";
   }
 
-  // If the node itself was originally an _N input, prioritize that.
+  // Attempt to recognize if the entire AST is a Church numeral
+  const numeralValue = tryGetChurchNumeralValue(node);
+  if (numeralValue !== null) {
+    return `_${numeralValue}`;
+  }
+
+  // If the node itself was originally an _N input (e.g. user typed _7), prioritize that.
+  // This handles cases where print() might not produce _N if N > 3 or if it's not top-level.
   if (node.sourcePrimitiveName && /^_\d+$/.test(node.sourcePrimitiveName)) {
     return node.sourcePrimitiveName;
   }
