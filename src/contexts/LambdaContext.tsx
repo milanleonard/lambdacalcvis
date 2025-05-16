@@ -39,7 +39,7 @@ const LambdaContext = createContext<LambdaContextType | undefined>(undefined);
 
 const INITIAL_EXPRESSION = "(λx.λy.x y) (λz.z)";
 const MAX_FULL_REDUCTION_STEPS = 5000;
-const PARSE_DEBOUNCE_DELAY = 1500; // 1.5 seconds
+const PARSE_DEBOUNCE_DELAY = 300; // Changed from 1500 to 300
 
 export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, setState] = useState<LambdaState>({
