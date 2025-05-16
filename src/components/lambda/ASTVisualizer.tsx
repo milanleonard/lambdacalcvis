@@ -26,20 +26,22 @@ const getNodeStyles = (node: SvgAstNode) => {
   let effectiveSourcePrimitive = node.sourcePrimitiveName;
 
   // If it's a collapsed node displaying a prettified name, use that for coloring.
-  if (node.type === 'variable' && node.name.startsWith('_')) {
+  if (node.type === 'variable' && node.name.startsWith('_')) { // Collapsed nodes are rendered as 'variable' type by generateSingleNodeSvgData and the new greedy logic
     effectiveSourcePrimitive = node.name;
   }
 
-
   switch (node.type) {
-    case 'variable': // Also used for single collapsed node
+    case 'variable': // Also used for single collapsed node or greedily collapsed sub-nodes
       fill = 'hsl(var(--ast-variable-bg))';
       stroke = 'hsl(var(--ast-variable-fg)/0.7)';
       textFill = 'hsl(var(--ast-variable-fg))';
       if (effectiveSourcePrimitive) {
+        // Color collapsed _PLUS, _MULT, _POW like applications
         if (effectiveSourcePrimitive.startsWith("_POW") || effectiveSourcePrimitive.startsWith("_MULT") || effectiveSourcePrimitive.startsWith("_PLUS")) {
            fill = 'hsl(var(--ast-application-bg))'; textFill = 'hsl(var(--ast-application-fg))'; stroke = 'hsl(var(--ast-application-fg)/0.7)';
-        } else if (effectiveSourcePrimitive.startsWith("_SUCC") || effectiveSourcePrimitive.startsWith("_Y-COMB") || effectiveSourcePrimitive.startsWith("_NOT") || effectiveSourcePrimitive.startsWith("_ID") || effectiveSourcePrimitive.startsWith("_TRUE") || effectiveSourcePrimitive.startsWith("_FALSE") || /^_\d+$/.test(effectiveSourcePrimitive) ) {
+        } 
+        // Color collapsed _ID, _TRUE, _FALSE, _SUCC, _Y-COMB, _NOT, and _Numbers like lambdas/values
+        else if (effectiveSourcePrimitive.startsWith("_SUCC") || effectiveSourcePrimitive.startsWith("_Y-COMB") || effectiveSourcePrimitive.startsWith("_NOT") || effectiveSourcePrimitive.startsWith("_ID") || effectiveSourcePrimitive.startsWith("_TRUE") || effectiveSourcePrimitive.startsWith("_FALSE") || /^_\d+$/.test(effectiveSourcePrimitive) ) {
             fill = 'hsl(var(--ast-lambda-bg))'; textFill = 'hsl(var(--ast-lambda-fg))'; stroke = 'hsl(var(--ast-lambda-fg)/0.7)';
         }
       }
@@ -73,7 +75,7 @@ export function ASTVisualizer() {
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
 
-  const [isCollapsedMode, setIsCollapsedMode] = useState(true);
+  const [isGloballyCollapsedMode, setIsGloballyCollapsedMode] = useState(true);
   const [significantPrettifiedName, setSignificantPrettifiedName] = useState<string | null>(null);
 
   const svgContainerRef = useRef<HTMLDivElement>(null);
@@ -83,18 +85,18 @@ export function ASTVisualizer() {
       const prettyName = prettifyAST(currentAST, customExpressions, predefinedExpressions);
       const canonicalPrintVal = print(currentAST);
       
-      const isSignificant = prettyName !== canonicalPrintVal && !prettyName.includes(" ") && prettyName.startsWith('_');
+      const isSignificantGlobalCollapse = prettyName !== canonicalPrintVal && !prettyName.includes(" ") && prettyName.startsWith('_');
       
-      if (isSignificant) {
+      if (isSignificantGlobalCollapse) {
         setSignificantPrettifiedName(prettyName);
-        setIsCollapsedMode(true); // Default to collapsed if a good name exists
+        setIsGloballyCollapsedMode(true); 
       } else {
         setSignificantPrettifiedName(null);
-        setIsCollapsedMode(false); // Show full tree
+        setIsGloballyCollapsedMode(false); 
       }
     } else {
       setSignificantPrettifiedName(null);
-      setIsCollapsedMode(false);
+      setIsGloballyCollapsedMode(false);
     }
   }, [currentAST, customExpressions, predefinedExpressions]);
 
@@ -102,16 +104,16 @@ export function ASTVisualizer() {
   const svgRenderData: AstSvgRenderData | null = useMemo(() => {
     if (!currentAST) return null;
     try {
-      if (isCollapsedMode && significantPrettifiedName) {
-        // Pass the significantPrettifiedName for coloring the single node.
+      if (isGloballyCollapsedMode && significantPrettifiedName) {
         return generateSingleNodeSvgData(significantPrettifiedName, currentAST.id, significantPrettifiedName);
       }
-      return generateAstSvgData(currentAST, highlightedRedexId);
+      // Pass customExpressions and predefinedExpressions for greedy subtree collapse
+      return generateAstSvgData(currentAST, highlightedRedexId, customExpressions, predefinedExpressions);
     } catch (e: any) {
       console.error("Error generating AST SVG data:", e);
       return { nodes: [], connectors: [], canvasWidth: 300, canvasHeight: 100, error: e.message || "Layout error" };
     }
-  }, [currentAST, highlightedRedexId, isCollapsedMode, significantPrettifiedName]);
+  }, [currentAST, highlightedRedexId, isGloballyCollapsedMode, significantPrettifiedName, customExpressions, predefinedExpressions]);
 
   const layoutError = svgRenderData?.error;
   const displayError = contextError || layoutError;
@@ -241,9 +243,11 @@ export function ASTVisualizer() {
   };
   
   const handleSvgClick = () => {
-    if (significantPrettifiedName) { // Only allow toggling if a prettified view is possible
-      setIsCollapsedMode(prev => !prev);
+    // Only toggle global collapse if a significant global prettified name exists
+    if (significantPrettifiedName) { 
+      setIsGloballyCollapsedMode(prev => !prev);
     }
+    // Future: If we implement per-node collapse, this click handler would need to identify the clicked SVG node.
   };
 
   return (
@@ -286,7 +290,7 @@ export function ASTVisualizer() {
         )}
         {svgRenderData && svgRenderData.nodes.length > 0 && !displayError && (
           <svg
-            key={currentAST?.id ? `${currentAST.id}-${isCollapsedMode}` : `ast-svg-${isCollapsedMode}`}
+            key={currentAST?.id ? `${currentAST.id}-${isGloballyCollapsedMode}-${svgRenderData.nodes.map(n=>n.name+n.id).join()}` : `ast-svg-${isGloballyCollapsedMode}`} // More robust key for re-render on content change
             width="100%" 
             height="100%"
             xmlns="http://www.w3.org/2000/svg"
@@ -307,9 +311,16 @@ export function ASTVisualizer() {
                 const styles = getNodeStyles(node);
                 let textContent = '';
                 
-                if (isCollapsedMode && significantPrettifiedName && node.name === significantPrettifiedName) {
+                // If it's a globally collapsed node, it has type 'variable' and its name is the prettified name
+                if (isGloballyCollapsedMode && significantPrettifiedName && node.name === significantPrettifiedName && node.type === 'variable') {
                     textContent = node.name;
-                } else {
+                } 
+                // Or, if it's a greedily collapsed subtree node (also rendered as type 'variable' by layout logic)
+                else if (node.type === 'variable' && node.name.startsWith('_')) {
+                    textContent = node.name;
+                }
+                // Otherwise, it's a regular expanded node
+                else {
                     switch (node.type) {
                     case 'variable':
                         textContent = (node as SvgVariableNode).name;
@@ -362,4 +373,3 @@ export function ASTVisualizer() {
     </Card>
   );
 }
-
