@@ -37,8 +37,9 @@ function getProcessedNamedTerms(
           lambda: expr.lambda,
           printedLambda: printed,
         });
-      } else if (printed.length > 0 && expr.name.match(/^([0-9]+|TRUE|FALSE|ZERO|ONE|TWO|THREE)$/)) {
-        // Allow specific simple predefined terms like numbers or booleans even if their print form is short
+      } else if (printed.length > 0 && expr.name.match(/^([0-9]+|TRUE|FALSE)$/i)) { 
+        // Allow specific simple predefined terms like numbers (0,1,2,3) or booleans.
+        // Note: ZERO, ONE, etc. were changed to "0", "1" in predefined.ts
          processedTerms.push({
           name: expr.name,
           lambda: expr.lambda,
@@ -66,6 +67,11 @@ export function prettifyAST(
     return "";
   }
 
+  // If the node itself was originally an _N input, prioritize that.
+  if (node.sourcePrimitiveName && /^_\d+$/.test(node.sourcePrimitiveName)) {
+    return node.sourcePrimitiveName;
+  }
+
   let currentPrintedString = print(node, 'top');
   
   const allProcessableTerms = getProcessedNamedTerms(customExpressions, predefinedExpressionsForContext);
@@ -74,10 +80,9 @@ export function prettifyAST(
     if (term.printedLambda.length === 0) continue;
 
     // Replace all occurrences of the term's canonical printed form with _TERM_NAME
-    // Ensure to handle cases where printedLambda might contain characters special to regex if we were using regex.
-    // String.split().join() is a safe way for literal string replacement.
     currentPrintedString = currentPrintedString.split(term.printedLambda).join(`_${term.name}`);
   }
 
   return currentPrintedString;
 }
+

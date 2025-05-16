@@ -38,7 +38,7 @@ interface LambdaContextType extends LambdaState {
 const LambdaContext = createContext<LambdaContextType | undefined>(undefined);
 
 const INITIAL_EXPRESSION = "(λx.λy.x y) (λz.z)";
-const MAX_FULL_REDUCTION_STEPS = 100;
+const MAX_FULL_REDUCTION_STEPS = 5000;
 
 export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, setState] = useState<LambdaState>({
@@ -74,9 +74,9 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   }, [toast]);
 
-  const updatePrettifiedString = useCallback((ast: ASTNode | null, customExprs: NamedExpression[]) => {
+  const updatePrettifiedString = useCallback((ast: ASTNode | null, currentCustomExprs: NamedExpression[]) => {
     if (ast) {
-      const prettified = prettifyAST(ast, customExprs, predefinedExpressions);
+      const prettified = prettifyAST(ast, currentCustomExprs, predefinedExpressions);
       setState(prevState => ({ ...prevState, prettifiedExpressionString: prettified }));
     } else {
       setState(prevState => ({ ...prevState, prettifiedExpressionString: "" }));
@@ -132,8 +132,8 @@ export const LambdaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }));
       updatePrettifiedString(null, state.customExpressions);
     }
-  }, [state.rawExpression, state.customExpressions, parseAndSetAST, updatePrettifiedString]);
-
+  // eslint-disable-next-line react-hooks/exhaustive-deps 
+  }, [state.rawExpression, state.customExpressions]); // parseAndSetAST is stable due to useCallback
 
   const setRawExpression = (value: string | ((prevState: string) => string)) => {
     const newRawExpression = typeof value === 'function' ? value(state.rawExpression) : value;
