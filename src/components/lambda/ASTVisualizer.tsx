@@ -11,9 +11,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, Info, Home } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import type { ASTNodeId } from '@/lib/lambda-calculus/types';
 
 const NODE_FONT_SIZE = 14;
-const NODE_RX = 6; 
+const NODE_RX = 6;
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 5;
 const FIT_PADDING_FACTOR = 0.9;
@@ -26,21 +27,19 @@ const getNodeStyles = (node: SvgAstNode) => {
   let effectiveSourcePrimitive = node.sourcePrimitiveName;
 
   // If it's a collapsed node displaying a prettified name, use that for coloring.
-  if (node.type === 'variable' && node.name.startsWith('_')) { // Collapsed nodes are rendered as 'variable' type by generateSingleNodeSvgData and the new greedy logic
+  if (node.type === 'variable' && node.name.startsWith('_')) {
     effectiveSourcePrimitive = node.name;
   }
 
   switch (node.type) {
-    case 'variable': // Also used for single collapsed node or greedily collapsed sub-nodes
+    case 'variable':
       fill = 'hsl(var(--ast-variable-bg))';
       stroke = 'hsl(var(--ast-variable-fg)/0.7)';
       textFill = 'hsl(var(--ast-variable-fg))';
       if (effectiveSourcePrimitive) {
-        // Color collapsed _PLUS, _MULT, _POW like applications
         if (effectiveSourcePrimitive.startsWith("_POW") || effectiveSourcePrimitive.startsWith("_MULT") || effectiveSourcePrimitive.startsWith("_PLUS")) {
            fill = 'hsl(var(--ast-application-bg))'; textFill = 'hsl(var(--ast-application-fg))'; stroke = 'hsl(var(--ast-application-fg)/0.7)';
-        } 
-        // Color collapsed _ID, _TRUE, _FALSE, _SUCC, _Y-COMB, _NOT, and _Numbers like lambdas/values
+        }
         else if (effectiveSourcePrimitive.startsWith("_SUCC") || effectiveSourcePrimitive.startsWith("_Y-COMB") || effectiveSourcePrimitive.startsWith("_NOT") || effectiveSourcePrimitive.startsWith("_ID") || effectiveSourcePrimitive.startsWith("_TRUE") || effectiveSourcePrimitive.startsWith("_FALSE") || /^_\d+$/.test(effectiveSourcePrimitive) ) {
             fill = 'hsl(var(--ast-lambda-bg))'; textFill = 'hsl(var(--ast-lambda-fg))'; stroke = 'hsl(var(--ast-lambda-fg)/0.7)';
         }
@@ -77,6 +76,7 @@ export function ASTVisualizer() {
 
   const [isGloballyCollapsedMode, setIsGloballyCollapsedMode] = useState(true);
   const [significantPrettifiedName, setSignificantPrettifiedName] = useState<string | null>(null);
+  const [expandedSubtreeNodeIds, setExpandedSubtreeNodeIds] = useState<Set<ASTNodeId>>(new Set());
 
   const svgContainerRef = useRef<HTMLDivElement>(null);
 
@@ -84,21 +84,22 @@ export function ASTVisualizer() {
     if (currentAST) {
       const prettyName = prettifyAST(currentAST, customExpressions, predefinedExpressions);
       const canonicalPrintVal = print(currentAST);
-      
       const isSignificantGlobalCollapse = prettyName !== canonicalPrintVal && !prettyName.includes(" ") && prettyName.startsWith('_');
-      
+
       if (isSignificantGlobalCollapse) {
         setSignificantPrettifiedName(prettyName);
-        setIsGloballyCollapsedMode(true); 
+        setIsGloballyCollapsedMode(true);
       } else {
         setSignificantPrettifiedName(null);
-        setIsGloballyCollapsedMode(false); 
+        setIsGloballyCollapsedMode(false);
       }
+      setExpandedSubtreeNodeIds(new Set()); // Reset subtree expansions on AST change
     } else {
       setSignificantPrettifiedName(null);
       setIsGloballyCollapsedMode(false);
+      setExpandedSubtreeNodeIds(new Set());
     }
-  }, [currentAST, customExpressions, predefinedExpressions]);
+  }, [currentAST, customExpressions]);
 
 
   const svgRenderData: AstSvgRenderData | null = useMemo(() => {
@@ -107,13 +108,12 @@ export function ASTVisualizer() {
       if (isGloballyCollapsedMode && significantPrettifiedName) {
         return generateSingleNodeSvgData(significantPrettifiedName, currentAST.id, significantPrettifiedName);
       }
-      // Pass customExpressions and predefinedExpressions for greedy subtree collapse
-      return generateAstSvgData(currentAST, highlightedRedexId, customExpressions, predefinedExpressions);
+      return generateAstSvgData(currentAST, highlightedRedexId, customExpressions, predefinedExpressions, expandedSubtreeNodeIds);
     } catch (e: any) {
       console.error("Error generating AST SVG data:", e);
       return { nodes: [], connectors: [], canvasWidth: 300, canvasHeight: 100, error: e.message || "Layout error" };
     }
-  }, [currentAST, highlightedRedexId, isGloballyCollapsedMode, significantPrettifiedName, customExpressions, predefinedExpressions]);
+  }, [currentAST, highlightedRedexId, isGloballyCollapsedMode, significantPrettifiedName, customExpressions, predefinedExpressions, expandedSubtreeNodeIds]);
 
   const layoutError = svgRenderData?.error;
   const displayError = contextError || layoutError;
@@ -132,41 +132,23 @@ export function ASTVisualizer() {
     let minTx, maxTx, minTy, maxTy;
 
     if (contentScaledWidth <= containerWidth) {
-      minTx = 0; 
-      maxTx = containerWidth - contentScaledWidth; 
+      minTx = (containerWidth - contentScaledWidth) / 2; // Center if smaller
+      maxTx = (containerWidth - contentScaledWidth) / 2;
     } else {
       const minVisiblePartX = Math.max(10, contentScaledWidth * MIN_VISIBLE_CONTENT_PERCENTAGE);
-      maxTx = containerWidth - minVisiblePartX; 
+      maxTx = containerWidth - minVisiblePartX;
       minTx = minVisiblePartX - contentScaledWidth;
     }
 
     if (contentScaledHeight <= containerHeight) {
-      minTy = 0;
-      maxTy = containerHeight - contentScaledHeight;
+      minTy = (containerHeight - contentScaledHeight) / 2; // Center if smaller
+      maxTy = (containerHeight - contentScaledHeight) / 2;
     } else {
       const minVisiblePartY = Math.max(10, contentScaledHeight * MIN_VISIBLE_CONTENT_PERCENTAGE);
-      maxTy = containerHeight - minVisiblePartY; 
-      minTy = minVisiblePartY - contentScaledHeight; 
+      maxTy = containerHeight - minVisiblePartY;
+      minTy = minVisiblePartY - contentScaledHeight;
     }
-    
-    if (minTx > maxTx) { 
-       if (contentScaledWidth > containerWidth) {
-            minTx = containerWidth - contentScaledWidth; 
-            maxTx = 0; 
-       } else { 
-            minTx = (containerWidth - contentScaledWidth) / 2; 
-            maxTx = (containerWidth - contentScaledWidth) / 2;
-       }
-    }
-    if (minTy > maxTy) {
-       if (contentScaledHeight > containerHeight) {
-            minTy = containerHeight - contentScaledHeight;
-            maxTy = 0;
-       } else {
-            minTy = (containerHeight - contentScaledHeight) / 2;
-            maxTy = (containerHeight - contentScaledHeight) / 2;
-       }
-    }
+
     return {
       x: clampValue(targetTx, minTx, maxTx),
       y: clampValue(targetTy, minTy, maxTy),
@@ -177,7 +159,7 @@ export function ASTVisualizer() {
     if (svgContainerRef.current && svgRenderData && svgRenderData.canvasWidth > 0 && svgRenderData.canvasHeight > 0) {
       const containerWidth = svgContainerRef.current.clientWidth;
       const containerHeight = svgContainerRef.current.clientHeight;
-      if (containerWidth <=0 || containerHeight <=0) return; 
+      if (containerWidth <=0 || containerHeight <=0) return;
 
       const scaleX = (containerWidth * FIT_PADDING_FACTOR) / svgRenderData.canvasWidth;
       const scaleY = (containerHeight * FIT_PADDING_FACTOR) / svgRenderData.canvasHeight;
@@ -186,7 +168,7 @@ export function ASTVisualizer() {
 
       const newTranslateX = (containerWidth - svgRenderData.canvasWidth * newScale) / 2;
       const newTranslateY = (containerHeight - svgRenderData.canvasHeight * newScale) / 2;
-      
+
       const clamped = getClampedTranslations(newTranslateX, newTranslateY, newScale);
       setScale(newScale);
       setTranslateX(clamped.x);
@@ -196,14 +178,14 @@ export function ASTVisualizer() {
 
   useEffect(() => {
     fitView();
-  }, [svgRenderData, fitView]); 
+  }, [svgRenderData, fitView]);
 
   const handleWheel = (e: WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
     if (!svgContainerRef.current || !svgRenderData) return;
     const rect = svgContainerRef.current.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left; 
-    const mouseY = e.clientY - rect.top;  
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
     const oldScale = scale;
     let newProposedScale = oldScale * (e.deltaY > 0 ? 0.9 : 1.1);
     const newScale = clampValue(newProposedScale, MIN_SCALE, MAX_SCALE);
@@ -218,9 +200,16 @@ export function ASTVisualizer() {
   };
 
   const handleMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return; 
+    if (e.button !== 0) return;
+    // Prevent panning if the click target is an individual SVG node that handled the click
+    const targetIsNodeGroup = (e.target as SVGElement).closest('g[data-ast-node-id]');
+    if (targetIsNodeGroup) {
+        // Individual node click handler will manage event if needed
+        return;
+    }
+
     setIsPanning(true);
-    setPanStart({ x: e.clientX - translateX, y: e.clientY - translateY }); 
+    setPanStart({ x: e.clientX - translateX, y: e.clientY - translateY });
     svgContainerRef.current?.style.setProperty('cursor', 'grabbing');
   };
 
@@ -234,20 +223,34 @@ export function ASTVisualizer() {
   };
 
   const handleMouseUpOrLeave = () => {
-    if (isPanning) { 
+    if (isPanning) {
         setIsPanning(false);
         if (svgContainerRef.current) {
             svgContainerRef.current.style.setProperty('cursor', 'grab');
         }
     }
   };
-  
-  const handleSvgClick = () => {
-    // Only toggle global collapse if a significant global prettified name exists
-    if (significantPrettifiedName) { 
+
+  const handleGlobalSvgClick = () => {
+    if (significantPrettifiedName) {
       setIsGloballyCollapsedMode(prev => !prev);
+      setExpandedSubtreeNodeIds(new Set()); // Reset subtree expansions on global toggle
     }
-    // Future: If we implement per-node collapse, this click handler would need to identify the clicked SVG node.
+  };
+
+  const handleSubtreeNodeClick = (event: ReactMouseEvent<SVGElement>, clickedNodeId: ASTNodeId, isNodeGreedilyCollapsible?: boolean) => {
+    event.stopPropagation(); // Prevent global click
+    if (isNodeGreedilyCollapsible) {
+      setExpandedSubtreeNodeIds(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(clickedNodeId)) {
+          newSet.delete(clickedNodeId);
+        } else {
+          newSet.add(clickedNodeId);
+        }
+        return newSet;
+      });
+    }
   };
 
   return (
@@ -258,15 +261,15 @@ export function ASTVisualizer() {
           <Home className="h-5 w-5" />
         </Button>
       </CardHeader>
-      <CardContent 
+      <CardContent
         ref={svgContainerRef}
-        className="flex-grow overflow-auto cursor-grab relative bg-background" 
+        className="flex-grow overflow-auto cursor-grab relative bg-background"
         onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUpOrLeave}
-        onMouseLeave={handleMouseUpOrLeave} 
-        onClick={handleSvgClick} 
+        onMouseLeave={handleMouseUpOrLeave}
+        onClick={handleGlobalSvgClick}
       >
         {isLoading && !svgRenderData && (
           <div className="space-y-4 p-2">
@@ -290,12 +293,12 @@ export function ASTVisualizer() {
         )}
         {svgRenderData && svgRenderData.nodes.length > 0 && !displayError && (
           <svg
-            key={currentAST?.id ? `${currentAST.id}-${isGloballyCollapsedMode}-${svgRenderData.nodes.map(n=>n.name+n.id).join()}` : `ast-svg-${isGloballyCollapsedMode}`} // More robust key for re-render on content change
-            width="100%" 
+            key={currentAST?.id ? `${currentAST.id}-${isGloballyCollapsedMode}-${[...expandedSubtreeNodeIds].sort().join('-')}` : `ast-svg-${isGloballyCollapsedMode}`}
+            width="100%"
             height="100%"
             xmlns="http://www.w3.org/2000/svg"
             className={cn("animate-fadeIn", {"border border-dashed border-destructive": !!layoutError})}
-            style={{ minHeight: '200px' }} 
+            style={{ minHeight: '200px' }}
           >
             <g transform={`translate(${translateX}, ${translateY}) scale(${scale})`}>
               {svgRenderData.connectors.map(connector => (
@@ -303,23 +306,20 @@ export function ASTVisualizer() {
                   key={connector.id}
                   d={connector.pathD}
                   stroke={connector.isHighlighted ? 'hsl(var(--ast-highlight-bg))' : 'hsl(var(--foreground)/0.5)'}
-                  strokeWidth={connector.isHighlighted ? (2/scale) : (1.5/scale)} 
+                  strokeWidth={connector.isHighlighted ? (2/scale) : (1.5/scale)}
                   fill="none"
                 />
               ))}
               {svgRenderData.nodes.map(node => {
                 const styles = getNodeStyles(node);
                 let textContent = '';
-                
-                // If it's a globally collapsed node, it has type 'variable' and its name is the prettified name
+
                 if (isGloballyCollapsedMode && significantPrettifiedName && node.name === significantPrettifiedName && node.type === 'variable') {
                     textContent = node.name;
-                } 
-                // Or, if it's a greedily collapsed subtree node (also rendered as type 'variable' by layout logic)
-                else if (node.type === 'variable' && node.name.startsWith('_')) {
+                }
+                else if (node.type === 'variable' && node.name.startsWith('_') && node.isGreedilyCollapsible && !expandedSubtreeNodeIds.has(node.id)) {
                     textContent = node.name;
                 }
-                // Otherwise, it's a regular expanded node
                 else {
                     switch (node.type) {
                     case 'variable':
@@ -329,13 +329,19 @@ export function ASTVisualizer() {
                         textContent = `λ${(node as SvgLambdaNode).param}.`;
                         break;
                     case 'application':
-                        textContent = '@'; 
+                        textContent = '@';
                         break;
                     }
                 }
-                
+
                 return (
-                  <g key={node.svgId} transform={`translate(${node.x}, ${node.y})`}>
+                  <g
+                    key={node.svgId}
+                    transform={`translate(${node.x}, ${node.y})`}
+                    data-ast-node-id={node.id} // For click handling
+                    onClick={(e) => handleSubtreeNodeClick(e, node.id, node.isGreedilyCollapsible)}
+                    className={cn(node.isGreedilyCollapsible && 'cursor-pointer')}
+                  >
                     <rect
                       width={node.width}
                       height={node.height}
@@ -343,7 +349,7 @@ export function ASTVisualizer() {
                       ry={NODE_RX}
                       fill={styles.fill}
                       stroke={styles.stroke}
-                      strokeWidth={node.isHighlighted ? (2/scale) : (1.5/scale)} 
+                      strokeWidth={node.isHighlighted ? (2/scale) : (1.5/scale)}
                     />
                     <text
                       x={node.width / 2}
@@ -351,9 +357,9 @@ export function ASTVisualizer() {
                       textAnchor="middle"
                       dominantBaseline="central"
                       fill={styles.textFill}
-                      fontSize={NODE_FONT_SIZE} 
+                      fontSize={NODE_FONT_SIZE}
                       fontFamily="var(--font-geist-mono)"
-                      style={{ pointerEvents: 'none' }} 
+                      style={{ pointerEvents: 'none' }}
                     >
                       {textContent}
                     </text>

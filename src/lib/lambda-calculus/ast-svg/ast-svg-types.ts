@@ -1,3 +1,4 @@
+
 import type { ASTNodeId } from '@/lib/lambda-calculus/types';
 
 export interface SvgDimensions {
@@ -16,6 +17,7 @@ export interface SvgAstNodeBase extends SvgDimensions, SvgPosition {
   type: 'variable' | 'lambda' | 'application';
   sourcePrimitiveName?: string;
   isHighlighted?: boolean;
+  isGreedilyCollapsible?: boolean; // New: True if this node *could* be greedily collapsed
 }
 
 export interface SvgVariableNode extends SvgAstNodeBase {
