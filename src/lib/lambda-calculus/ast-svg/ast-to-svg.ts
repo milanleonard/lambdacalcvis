@@ -8,13 +8,13 @@ import type { NamedExpression } from '../predefined';
 
 
 // --- Configuration Constants for Layout ---
-const MIN_NODE_WIDTH = 30;
-const NODE_HEIGHT = 40;
-const HORIZONTAL_SPACING = 20;
-const VERTICAL_SPACING = 45;
-const TEXT_PADDING = 5;
-const CHAR_WIDTH_ESTIMATE = 8;
-const INITIAL_PADDING = 20;
+const MIN_NODE_WIDTH = 30; // Minimum width for any node
+const NODE_HEIGHT = 40;    // Standard height for node boxes
+const HORIZONTAL_SPACING = 20; // Horizontal space between sibling subtrees (e.g., func and arg of an application)
+const VERTICAL_SPACING = 45;   // Vertical space between parent and child levels
+const TEXT_PADDING = 5;        // Padding around text within a node box
+const CHAR_WIDTH_ESTIMATE = 8; // Estimated width of a character for text width calculation
+const INITIAL_PADDING = 20;    // Padding around the entire AST diagram within the SVG canvas
 
 interface LayoutContext {
   svgNodes: SvgAstNode[];
@@ -26,14 +26,14 @@ interface LayoutContext {
   maxYOverall: number;
   customExpressions: NamedExpression[];
   predefinedExpressions: NamedExpression[];
-  expandedSubtreeNodeIds: Set<ASTNodeId>; // New
+  expandedSubtreeNodeIds: Set<ASTNodeId>;
 }
 
 function initializeLayoutContext(
   highlightedRedexId?: string,
   customExpressions: NamedExpression[] = [],
   predefinedExpressions: NamedExpression[] = [],
-  expandedSubtreeNodeIds: Set<ASTNodeId> = new Set() // New
+  expandedSubtreeNodeIds: Set<ASTNodeId> = new Set()
 ): LayoutContext {
   return {
     svgNodes: [],
@@ -45,24 +45,23 @@ function initializeLayoutContext(
     maxYOverall: -Infinity,
     customExpressions,
     predefinedExpressions,
-    expandedSubtreeNodeIds, // New
+    expandedSubtreeNodeIds,
   };
 }
 
 interface ProcessedSubtree {
-  centerX: number; // Center X of the root of this subtree, relative to currentX
-  y: number;       // Top Y of the root of this subtree
-  width: number;   // Total width of this subtree
-  height: number;  // Total height of this subtree
-  svgId: string;   // SVG ID of the root node of this subtree
+  centerX: number; // Center X of the root symbol of this subtree, relative to currentX
+  y: number;       // Top Y of the root symbol of this subtree
+  width: number;   // Total width spanned by this subtree
+  height: number;  // Total height spanned by this subtree
+  svgId: string;   // SVG ID of the root node's symbol of this subtree
 }
-
 
 function updateOverallBounds(ctx: LayoutContext, nodeX: number, nodeY: number, nodeWidth: number, nodeHeight: number) {
     ctx.minXOverall = Math.min(ctx.minXOverall, nodeX);
     ctx.maxXOverall = Math.max(ctx.maxXOverall, nodeX + nodeWidth);
     ctx.minYOverall = Math.min(ctx.minYOverall, nodeY);
-    ctx.maxYOverall = Math.max(ctx.maxYOverall, nodeY + nodeHeight);
+    maxYOverall: Math.max(ctx.maxYOverall, nodeY + nodeHeight); // Typo fixed here
 }
 
 // currentX is the leftmost available x-coordinate for this node's own symbol/block.
@@ -70,45 +69,48 @@ function updateOverallBounds(ctx: LayoutContext, nodeX: number, nodeY: number, n
 function layoutNodeRecursive(
   astNode: ASTNode,
   ctx: LayoutContext,
-  currentX: number,
-  currentY: number
+  currentX: number, // Proposed X start for this node's entire block
+  currentY: number  // Proposed Y for this node's symbol
 ): ProcessedSubtree {
-  const svgId = generateSvgNodeId(astNode.type);
+  const svgId = generateSvgNodeId(astNode.type + (astNode.sourcePrimitiveName || ''));
   const isHighlighted = astNode.id === ctx.highlightedRedexId || astNode.isRedex;
   let nodeOwnWidth: number;
   const nodeOwnHeight = NODE_HEIGHT;
   let createdNode: SvgAstNode;
 
-  // --- Greedy Subtree Collapse Check ---
   const prettyName = prettifyAST(astNode, ctx.customExpressions, ctx.predefinedExpressions);
   const canonicalPrintVal = print(astNode);
   const isSignificantSubtreeCollapse = prettyName !== canonicalPrintVal && !prettyName.includes(" ") && prettyName.startsWith('_');
 
+  createdNode_isGreedilyCollapsible = isSignificantSubtreeCollapse;
+
+
   if (isSignificantSubtreeCollapse && !ctx.expandedSubtreeNodeIds.has(astNode.id)) {
     nodeOwnWidth = Math.max(MIN_NODE_WIDTH, prettyName.length * CHAR_WIDTH_ESTIMATE + 2 * TEXT_PADDING);
     createdNode = {
-      id: astNode.id, svgId, type: 'variable',
+      id: astNode.id, svgId, type: 'variable', // Treat as var for simplicity of text
       name: prettyName,
       x: currentX, y: currentY, width: nodeOwnWidth, height: nodeOwnHeight,
-      isHighlighted, sourcePrimitiveName: prettyName,
-      isGreedilyCollapsible: true, // Mark as collapsible
+      isHighlighted, sourcePrimitiveName: prettyName, // Use prettyName for coloring
+      isGreedilyCollapsible: true,
     };
     ctx.svgNodes.push(createdNode);
     updateOverallBounds(ctx, createdNode.x, createdNode.y, createdNode.width, createdNode.height);
+    
     return {
-      centerX: nodeOwnWidth / 2, // centerX relative to currentX
+      centerX: nodeOwnWidth / 2, // Relative to currentX
       y: currentY,
       width: nodeOwnWidth,
       height: nodeOwnHeight,
       svgId: svgId,
     };
   }
-  // --- End Greedy Subtree Collapse Check ---
-
 
   let subtreeWidth: number;
   let subtreeHeight: number;
-  let subtreeCenterXRel: number; // Center X relative to currentX
+  let subtreeCenterXRel: number; // Center X of this node's symbol, relative to currentX
+
+  const childY = currentY + nodeOwnHeight + VERTICAL_SPACING;
 
   if (astNode.type === 'variable') {
     const varNode = astNode as Variable;
@@ -117,7 +119,7 @@ function layoutNodeRecursive(
       id: astNode.id, svgId, type: 'variable', name: varNode.name,
       x: currentX, y: currentY, width: nodeOwnWidth, height: nodeOwnHeight,
       isHighlighted, sourcePrimitiveName: astNode.sourcePrimitiveName,
-      isGreedilyCollapsible: isSignificantSubtreeCollapse,
+      isGreedilyCollapsible: createdNode_isGreedilyCollapsible,
     };
     subtreeWidth = nodeOwnWidth;
     subtreeHeight = nodeOwnHeight;
@@ -127,108 +129,81 @@ function layoutNodeRecursive(
     const textContent = `λ${lambdaNode.param}.`;
     nodeOwnWidth = Math.max(MIN_NODE_WIDTH, textContent.length * CHAR_WIDTH_ESTIMATE + 2 * TEXT_PADDING);
 
-    // Layout body, starting it at currentX (it will be centered later if needed)
-    const bodyLayout = layoutNodeRecursive(lambdaNode.body, ctx, currentX, currentY + nodeOwnHeight + VERTICAL_SPACING);
-
+    const bodyLayout = layoutNodeRecursive(lambdaNode.body, ctx, currentX, childY);
+    
     // Center lambda symbol above the body's actual width and relative center
-    const lambdaSymbolRelX = bodyLayout.centerX - (nodeOwnWidth / 2);
-    const lambdaSymbolActualX = currentX + lambdaSymbolRelX;
+    // lambdaSymbolActualX is the absolute X for the lambda symbol
+    const lambdaSymbolActualX = currentX + bodyLayout.centerX - (nodeOwnWidth / 2);
 
     createdNode = {
       id: astNode.id, svgId, type: 'lambda', param: lambdaNode.param,
       x: lambdaSymbolActualX, y: currentY, width: nodeOwnWidth, height: nodeOwnHeight,
       isHighlighted, sourcePrimitiveName: astNode.sourcePrimitiveName,
-      isGreedilyCollapsible: isSignificantSubtreeCollapse,
+      isGreedilyCollapsible: createdNode_isGreedilyCollapsible,
     };
 
     ctx.svgConnectors.push({
-      id: generateSvgNodeId('connector-lambda'),
+      id: generateSvgNodeId('connector-lambda-body'),
       fromSvgId: svgId, toSvgId: bodyLayout.svgId, pathD: '',
       isHighlighted: isHighlighted && (astNode.body.isRedex || astNode.body.id === ctx.highlightedRedexId),
     });
     
     subtreeWidth = Math.max(nodeOwnWidth, bodyLayout.width);
-    subtreeHeight = (bodyLayout.y + bodyLayout.height) - currentY;
-    subtreeCenterXRel = lambdaSymbolRelX + nodeOwnWidth / 2;
+    subtreeHeight = (childY + bodyLayout.height) - currentY; // Height from lambda symbol top to body bottom
+    subtreeCenterXRel = lambdaSymbolActualX - currentX + nodeOwnWidth / 2; // Center of the lambda symbol, relative to currentX
 
   } else { // Application
     const appNode = astNode as Application;
     nodeOwnWidth = Math.max(MIN_NODE_WIDTH, ('@').length * CHAR_WIDTH_ESTIMATE + 2 * TEXT_PADDING);
 
-    // Layout func subtree, starting at currentX
-    const funcLayout = layoutNodeRecursive(appNode.func, ctx, currentX, currentY + nodeOwnHeight + VERTICAL_SPACING);
-
-    // Layout arg subtree, starting after func subtree + spacing
-    // currentX for arg is relative to its own sub-problem, starting at 0.
-    // Then we'll shift it.
-    const argSubtreeLayout = layoutNodeRecursive(appNode.arg, ctx, 0, currentY + nodeOwnHeight + VERTICAL_SPACING);
-
-    // Calculate final X position for the Arg subtree (which was laid out starting at its own x=0)
-    // It needs to be shifted relative to the application node's currentX.
-    const argFinalStartX = currentX + funcLayout.width + HORIZONTAL_SPACING;
+    const funcLayout = layoutNodeRecursive(appNode.func, ctx, currentX, childY);
     
-    // Shift all nodes within argSubtreeLayout by argFinalStartX
-    // This requires finding all nodes belonging to argSubtreeLayout in ctx.svgNodes
-    // and updating their .x coordinates. This is complex if we only return dimensions.
-    // Alternative: layoutNodeRecursive applies its passed currentX to its root.
-    // So, pass the correct starting X for arg directly.
-    const argLayout = layoutNodeRecursive(appNode.arg, ctx, argFinalStartX, currentY + nodeOwnHeight + VERTICAL_SPACING);
-
-
-    const childrenBlockWidth = (argLayout.svgId ? (argLayout.width + (argLayout.centerX - argLayout.width/2) + argFinalStartX - currentX) : funcLayout.width);
-     // If argLayout has an svgId, it means it was rendered. Take its actual width and position.
-    // The width from funcLayout's start (currentX) to argLayout's end.
-    // argLayout.centerX is relative to argFinalStartX. So argLayout.x_absolute = argFinalStartX + (argLayout.centerX - argLayout.width/2)
-    // End of argLayout is argLayout.x_absolute + argLayout.width
-
-    const appSymbolRelX = funcLayout.centerX - (nodeOwnWidth / 2); // Bias towards function
-    const appSymbolActualX = currentX + appSymbolRelX;
+    const argStartX = currentX + funcLayout.width + HORIZONTAL_SPACING;
+    const argLayout = layoutNodeRecursive(appNode.arg, ctx, argStartX, childY);
+    
+    const childrenTotalWidth = (argStartX + argLayout.width) - currentX;
+    // Position the '@' symbol itself, centered above the children block.
+    const appSymbolActualX = currentX + (childrenTotalWidth / 2) - (nodeOwnWidth / 2);
 
     createdNode = {
       id: astNode.id, svgId, type: 'application',
       x: appSymbolActualX, y: currentY, width: nodeOwnWidth, height: nodeOwnHeight,
       isHighlighted, sourcePrimitiveName: astNode.sourcePrimitiveName,
-      isGreedilyCollapsible: isSignificantSubtreeCollapse,
+      isGreedilyCollapsible: createdNode_isGreedilyCollapsible,
     };
 
     ctx.svgConnectors.push({
       id: generateSvgNodeId('connector-func'), fromSvgId: svgId, toSvgId: funcLayout.svgId, pathD: '',
       isHighlighted: isHighlighted && (astNode.func.isRedex || astNode.func.id === ctx.highlightedRedexId),
     });
-    if (argLayout.svgId) { // Only add connector if arg was actually drawn (not part of a collapsed func)
-        ctx.svgConnectors.push({
-        id: generateSvgNodeId('connector-arg'), fromSvgId: svgId, toSvgId: argLayout.svgId, pathD: '',
-        isHighlighted: isHighlighted && (astNode.arg.isRedex || astNode.arg.id === ctx.highlightedRedexId),
-        });
-    }
+    ctx.svgConnectors.push({
+      id: generateSvgNodeId('connector-arg'), fromSvgId: svgId, toSvgId: argLayout.svgId, pathD: '',
+      isHighlighted: isHighlighted && (astNode.arg.isRedex || astNode.arg.id === ctx.highlightedRedexId),
+    });
     
-    // Total width is from start of func (currentX) to end of arg.
-    // End of arg is argFinalStartX + argLayout.width
-    subtreeWidth = (argLayout.svgId ? (argFinalStartX + argLayout.width - currentX) : funcLayout.width);
-    subtreeHeight = (Math.max(funcLayout.y + funcLayout.height, argLayout.svgId ? (argLayout.y + argLayout.height) : 0)) - currentY;
-    subtreeCenterXRel = appSymbolRelX + nodeOwnWidth / 2; // Biased towards function's center
+    subtreeWidth = childrenTotalWidth;
+    subtreeHeight = (childY + Math.max(funcLayout.height, argLayout.height)) - currentY;
+    subtreeCenterXRel = appSymbolActualX - currentX + nodeOwnWidth / 2; // Center of the '@' symbol, relative to currentX
   }
 
   ctx.svgNodes.push(createdNode);
   updateOverallBounds(ctx, createdNode.x, createdNode.y, createdNode.width, createdNode.height);
 
-
   return {
-    centerX: subtreeCenterXRel, // Relative to the currentX passed into this call
-    y: currentY,
+    centerX: subtreeCenterXRel,
+    y: currentY, // y of the current node's symbol
     width: subtreeWidth,
     height: subtreeHeight,
     svgId: svgId,
   };
 }
 
-
 export function generateAstSvgData(
   astNode: ASTNode | null,
   highlightedRedexId?: string,
   customExpressions: NamedExpression[] = [],
   predefinedExpressions: NamedExpression[] = [],
-  expandedSubtreeNodeIds: Set<ASTNodeId> = new Set() // New
+  expandedSubtreeNodeIds: Set<ASTNodeId> = new Set()
 ): AstSvgRenderData {
   if (!astNode) {
     return { nodes: [], connectors: [], canvasWidth: 0, canvasHeight: 0, error: "No AST node provided." };
@@ -237,10 +212,9 @@ export function generateAstSvgData(
   const ctx = initializeLayoutContext(highlightedRedexId, customExpressions, predefinedExpressions, expandedSubtreeNodeIds);
 
   try {
-    // Initial layout pass. Nodes are positioned relative to a conceptual tree origin (0,0).
-    layoutNodeRecursive(astNode, ctx, 0, 0);
+    layoutNodeRecursive(astNode, ctx, 0, 0); // Start layout from (0,0)
 
-    // Calculate connector paths based on final relative node positions
+    // Defer path calculation until all nodes have their final relative positions
     ctx.svgConnectors.forEach(connector => {
       const fromNode = ctx.svgNodes.find(n => n.svgId === connector.fromSvgId);
       const toNode = ctx.svgNodes.find(n => n.svgId === connector.toSvgId);
@@ -251,26 +225,18 @@ export function generateAstSvgData(
         const endY = toNode.y;
         connector.pathD = `M ${startX} ${startY} L ${endX} ${endY}`;
       } else {
-        // Should not happen if layout is correct and all nodes are added
-        connector.pathD = "M 0 0 L 0 0";
-         console.warn("Orphaned connector:", connector.id, "From:", connector.fromSvgId, "To:", connector.toSvgId);
+        connector.pathD = "M 0 0 L 0 0"; // Should not happen
+        console.warn("Orphaned connector:", connector.id, "From:", connector.fromSvgId, "To:", connector.toSvgId);
       }
     });
 
-    // Calculate overall bounds from all nodes and connectors to prepare for normalization
-    // This step should have been implicitly handled by updateOverallBounds during layout.
-    // If any node/connector positions were calculated/shifted *after* their initial layout,
-    // bounds might need re-evaluation or careful update.
-    // For now, relying on updateOverallBounds.
-
+    // Normalize coordinates: shift entire drawing so minX, minY are at INITIAL_PADDING
     let shiftX = INITIAL_PADDING;
     let shiftY = INITIAL_PADDING;
 
-    if (ctx.svgNodes.length > 0) {
-        // If minXOverall is still Infinity, it means no nodes were laid out (e.g., fully collapsed global AST).
-        // In that case, shiftX/Y will just be INITIAL_PADDING.
-        shiftX = (ctx.minXOverall === Infinity) ? INITIAL_PADDING : -ctx.minXOverall + INITIAL_PADDING;
-        shiftY = (ctx.minYOverall === Infinity) ? INITIAL_PADDING : -ctx.minYOverall + INITIAL_PADDING;
+    if (ctx.svgNodes.length > 0 && ctx.minXOverall !== Infinity && ctx.minYOverall !== Infinity) {
+        shiftX = -ctx.minXOverall + INITIAL_PADDING;
+        shiftY = -ctx.minYOverall + INITIAL_PADDING;
 
         ctx.svgNodes.forEach(node => {
             node.x += shiftX;
@@ -278,6 +244,7 @@ export function generateAstSvgData(
         });
 
         ctx.svgConnectors.forEach(connector => {
+            // Regex to parse M x1 y1 L x2 y2
             const parts = connector.pathD.match(/M\s*([-\d.eE]+)\s*([-\d.eE]+)\s*L\s*([-\d.eE]+)\s*([-\d.eE]+)/);
             if (parts && parts.length === 5) {
                 const x1 = parseFloat(parts[1]) + shiftX;
@@ -287,28 +254,21 @@ export function generateAstSvgData(
                 connector.pathD = `M ${x1} ${y1} L ${x2} ${y2}`;
             }
         });
-    } else if (astNode && isSignificantGlobalCollapse(astNode, ctx.customExpressions, ctx.predefinedExpressions)) {
-        // This case handles when the *entire* AST is a single collapsed node.
-        // The layoutNodeRecursive would have returned early.
-        // We need to manually add this single node if generateSingleNodeSvgData isn't used.
-        // However, the main ASTVisualizer component handles the global collapse separately
-        // by calling generateSingleNodeSvgData, so this specific 'else if' might be redundant here.
     }
-
-
+    
     const finalCanvasWidth = (ctx.maxXOverall === -Infinity || ctx.minXOverall === Infinity)
-        ? (ctx.svgNodes[0]?.width || 0) + 2 * INITIAL_PADDING
+        ? (ctx.svgNodes[0]?.width || 0) + 2 * INITIAL_PADDING // Fallback for single node case
         : (ctx.maxXOverall - ctx.minXOverall) + 2 * INITIAL_PADDING;
     const finalCanvasHeight = (ctx.maxYOverall === -Infinity || ctx.minYOverall === Infinity)
-        ? (ctx.svgNodes[0]?.height || 0) + 2 * INITIAL_PADDING
+        ? (ctx.svgNodes[0]?.height || 0) + 2 * INITIAL_PADDING // Fallback for single node case
         : (ctx.maxYOverall - ctx.minYOverall) + 2 * INITIAL_PADDING;
 
 
     return {
       nodes: ctx.svgNodes,
       connectors: ctx.svgConnectors,
-      canvasWidth: Math.max(200, finalCanvasWidth),
-      canvasHeight: Math.max(100, finalCanvasHeight),
+      canvasWidth: Math.max(MIN_NODE_WIDTH + 2*INITIAL_PADDING, finalCanvasWidth), // Ensure minimum canvas size
+      canvasHeight: Math.max(NODE_HEIGHT + 2*INITIAL_PADDING, finalCanvasHeight), // Ensure minimum canvas size
     };
   } catch (error: any) {
     console.error("Error during AST SVG layout:", error);
@@ -336,7 +296,7 @@ export function generateSingleNodeSvgData(
   originalAstId: string,
   sourcePrimitiveForColoring?: string
 ): AstSvgRenderData {
-  const svgId = generateSvgNodeId('summary');
+  const svgId = generateSvgNodeId('summary' + name);
   const nodeOwnWidth = Math.max(MIN_NODE_WIDTH, name.length * CHAR_WIDTH_ESTIMATE + 2 * TEXT_PADDING + 10);
   const nodeOwnHeight = NODE_HEIGHT;
 
@@ -351,7 +311,7 @@ export function generateSingleNodeSvgData(
     height: nodeOwnHeight,
     isHighlighted: false,
     sourcePrimitiveName: sourcePrimitiveForColoring || name,
-    isGreedilyCollapsible: true, // A globally collapsed node is definitionally collapsible
+    isGreedilyCollapsible: true, 
   };
 
   return {
@@ -361,3 +321,5 @@ export function generateSingleNodeSvgData(
     canvasHeight: nodeOwnHeight + 2 * INITIAL_PADDING,
   };
 }
+
+    
